@@ -84,7 +84,12 @@ def prepare_videos() -> None:
 @app.route("/")
 def index():
     prepare_videos()
-    return render_template("index.html", score=score)
+    return render_template(
+        "index.html",
+        score=score,
+        ref_video_name=REF_VIDEO.name,
+        cur_video_name=CUR_VIDEO.name,
+    )
 
 
 @app.route("/messages", methods=["GET", "POST"])
@@ -103,6 +108,13 @@ def serve_video(filename):
     return send_from_directory("data", filename)
 
 
+@app.route("/list_videos")
+def list_videos():
+    """Return available mp4 files in the data directory."""
+    files = sorted(p.name for p in Path("data").glob("*.mp4"))
+    return jsonify(files)
+
+
 def _download_video(url: str, dst: Path) -> None:
     """Download a video from the given URL to the destination path."""
     urllib.request.urlretrieve(url, dst)
@@ -110,10 +122,18 @@ def _download_video(url: str, dst: Path) -> None:
 
 @app.route("/set_videos", methods=["POST"])
 def set_videos():
-    """Fetch videos from provided URLs and re-run analysis."""
+    """Select videos from local files or URLs and re-run analysis."""
     data = request.get_json() or {}
     ref_url = data.get("reference_url")
     cur_url = data.get("current_url")
+    ref_file = data.get("reference_file")
+    cur_file = data.get("current_file")
+
+    global REF_VIDEO, CUR_VIDEO
+    if ref_file:
+        REF_VIDEO = Path("data") / ref_file
+    if cur_file:
+        CUR_VIDEO = Path("data") / cur_file
 
     if ref_url:
         _download_video(ref_url, REF_VIDEO)
