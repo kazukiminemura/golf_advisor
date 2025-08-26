@@ -10,11 +10,12 @@ This project provides a simple command-line tool to compare two golf swing video
 - `numpy`
 - `transformers`
 - `torch`
+- `Pillow`
 
 Install the requirements:
 
 ```bash
-pip install openvino opencv-python openvino-dev numpy transformers torch
+pip install openvino opencv-python openvino-dev numpy transformers torch Pillow
 ```
 
 ## Usage
@@ -23,7 +24,7 @@ pip install openvino opencv-python openvino-dev numpy transformers torch
 python golf_swing_compare.py --reference REF.mp4 --test TEST.mp4 --model human-pose-estimation-0001.xml
 ```
 
-Use `--chat` to launch a small LLM-based chatbot that provides swing advice:
+Use `--chat` to display a chat panel alongside the video comparison:
 
 ```bash
 python golf_swing_compare.py --reference REF.mp4 --test TEST.mp4 --model human-pose-estimation-0001.xml --chat
