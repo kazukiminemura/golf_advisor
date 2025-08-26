@@ -11,15 +11,23 @@
     .chat-input { display: flex; }
     .chat-input input { flex: 1; padding: 5px; }
     .chat-input button { margin-left: 5px; }
+    .video-wrapper { display: flex; }
+    .video-wrapper video { width: 50%; }
   </style>
 </head>
 <body>
   <!-- 動画 -->
   <div class="video-container">
-    <video controls width="100%" height="100%">
-      <source src="{{ url_for('static', filename='your_video.mp4') }}" type="video/mp4">
-      お使いのブラウザは動画再生に対応していません。
-    </video>
+    <div class="video-wrapper">
+      <video controls>
+        <source src="{{ url_for('serve_video', filename='reference.mp4') }}" type="video/mp4">
+        お使いのブラウザは動画再生に対応していません。
+      </video>
+      <video controls>
+        <source src="{{ url_for('serve_video', filename='current.mp4') }}" type="video/mp4">
+        お使いのブラウザは動画再生に対応していません。
+      </video>
+    </div>
   </div>
 
   <!-- チャット -->
