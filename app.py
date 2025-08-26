@@ -7,7 +7,20 @@ from werkzeug.utils import secure_filename
 from golf_swing_compare import compare_swings, draw_skeleton, extract_keypoints
 
 app = Flask(__name__)
-messages = []  # 簡易的にメッセージをメモリに保持
+# 簡易的なチャットボット用メッセージ履歴をメモリに保持
+messages = [{"role": "assistant", "content": "ゴルフスイングについてご質問ください。"}]
+
+
+def _generate_reply(text: str) -> str:
+    """Return a simple rule-based reply for the chatbot."""
+    lower = text.lower()
+    if "slice" in lower or "スライス" in text:
+        return "スライスを減らすには、インパクトでフェースを閉じる意識を持つと良いでしょう。"
+    if "hook" in lower or "フック" in text:
+        return "フックが出る場合は、グリップを少し弱めて体の回転を意識してみてください。"
+    if "grip" in lower or "グリップ" in text:
+        return "グリップは力み過ぎず、指の付け根でクラブを支えるのがポイントです。"
+    return "リズムとバランスを意識するとスイングが安定します。さらに知りたい点を教えてください。"
 
 # Paths and model configuration for OpenPose processing
 MODEL_XML = "human-pose-estimation-0001.xml"
@@ -97,9 +110,12 @@ def index():
 @app.route("/messages", methods=["GET", "POST"])
 def message_handler():
     if request.method == "POST":
-        data = request.get_json()
-        messages.append(data["message"])
-        return "", 204  # 成功時は空でOK
+        data = request.get_json() or {}
+        user_msg = data.get("message", "")
+        messages.append({"role": "user", "content": user_msg})
+        reply = _generate_reply(user_msg)
+        messages.append({"role": "assistant", "content": reply})
+        return jsonify({"reply": reply})
     else:
         return jsonify(messages)
 

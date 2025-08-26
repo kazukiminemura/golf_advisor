@@ -53,3 +53,7 @@ python app.py
 ```
 
 Then open `http://localhost:5000/` in your browser to view the comparison.
+
+The chat panel contains a small rule-based chatbot that provides basic golf
+swing tips in Japanese. Messages are handled on the server and are not
+persisted; restart the server to clear the conversation.
