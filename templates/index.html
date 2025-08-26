@@ -72,9 +72,11 @@
       box.innerHTML = '';
       msgs.forEach(m => {
         const p = document.createElement('p');
-        p.textContent = m;
+        const prefix = m.role === 'user' ? 'あなた: ' : 'コーチ: ';
+        p.textContent = prefix + m.content;
         box.appendChild(p);
       });
+      box.scrollTop = box.scrollHeight;
     }
 
     document.getElementById('send-btn').onclick = async () => {
