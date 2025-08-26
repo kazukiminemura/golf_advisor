@@ -8,11 +8,13 @@ This project provides a simple command-line tool to compare two golf swing video
 - OpenPose model converted to OpenVINO IR format (e.g. `human-pose-estimation-0001` from Open Model Zoo)
 - `opencv-python`
 - `numpy`
+- `transformers`
+- `torch`
 
 Install the requirements:
 
 ```bash
-pip install openvino opencv-python openvino-dev numpy 
+pip install openvino opencv-python openvino-dev numpy transformers torch
 ```
 
 ## Usage
@@ -21,9 +23,16 @@ pip install openvino opencv-python openvino-dev numpy
 python golf_swing_compare.py --reference REF.mp4 --test TEST.mp4 --model human-pose-estimation-0001.xml
 ```
 
+Use `--chat` to launch a small LLM-based chatbot that provides swing advice:
+
+```bash
+python golf_swing_compare.py --reference REF.mp4 --test TEST.mp4 --model human-pose-estimation-0001.xml --chat
+```
+
 Use `--step` to start playback paused for frame-by-frame analysis. During
 playback, press the space bar to pause or resume and use the left/right arrow
 keys to step through frames while paused. Playback loops automatically when
 the end of the videos is reached; press `q` to exit.
 
 The script outputs a single numerical score representing the average difference between the two swings. Lower scores indicate more similar swings.
+

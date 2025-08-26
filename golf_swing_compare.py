@@ -75,6 +75,84 @@ def compare_swings(ref_kp, test_kp):
     return diff / length
 
 
+def analyze_differences(ref_kp, test_kp):
+    """Compute average per-keypoint differences between two swings."""
+    import numpy as np
+
+    length = min(len(ref_kp), len(test_kp))
+    if length == 0:
+        return {}
+    num_kp = min(len(ref_kp[0]), len(test_kp[0]))
+    diff_sum = np.zeros(num_kp)
+    for i in range(length):
+        ref = np.array([p[:2] for p in ref_kp[i][:num_kp]])
+        test = np.array([p[:2] for p in test_kp[i][:num_kp]])
+        diff_sum += np.linalg.norm(ref - test, axis=1)
+    diff_avg = diff_sum / length
+    names = {
+        0: "nose",
+        1: "neck",
+        2: "right shoulder",
+        3: "right elbow",
+        4: "right wrist",
+        5: "left shoulder",
+        6: "left elbow",
+        7: "left wrist",
+        8: "mid hip",
+        9: "right hip",
+        10: "right knee",
+        11: "right ankle",
+        12: "left hip",
+        13: "left knee",
+        14: "left ankle",
+    }
+    return {names.get(i, str(i)): diff_avg[i] for i in range(num_kp)}
+
+
+def run_chatbot(ref_kp, test_kp, score):
+    """Provide swing advice using a small LLM chatbot."""
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    diffs = analyze_differences(ref_kp, test_kp)
+    significant = sorted(diffs.items(), key=lambda x: x[1], reverse=True)[:3]
+    diff_text = ", ".join(f"{name} ({dist:.1f})" for name, dist in significant)
+
+    model_name = "distilgpt2"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name)
+
+    system_prompt = (
+        "You are a helpful golf swing coach chatbot.\n"
+        f"Overall swing difference score: {score:.2f}.\n"
+        f"Key differences: {diff_text}.\n"
+        "Provide concise advice.\nCoach:"
+    )
+    input_ids = tokenizer.encode(system_prompt, return_tensors="pt")
+    output_ids = model.generate(
+        input_ids, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+    )
+    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    reply = response[len(system_prompt) :].strip()
+    print(f"Coach: {reply}")
+    history = system_prompt + " " + reply
+    while True:
+        try:
+            user = input("You: ")
+        except EOFError:
+            break
+        if user.strip().lower() in {"quit", "exit"}:
+            break
+        history += f"\nYou: {user}\nCoach:"
+        input_ids = tokenizer.encode(history, return_tensors="pt")
+        output_ids = model.generate(
+            input_ids, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+        )
+        response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        reply = response[len(history) :].strip()
+        print(f"Coach: {reply}")
+        history += " " + reply
+
+
 # Pairs of keypoints that make up the skeletal connections. The indices
 # correspond to the standard OpenPose output ordering. When a pair index is
 # outside the number of detected keypoints it is ignored so the code can work
@@ -183,6 +261,11 @@ def main():
         action="store_true",
         help="Start playback paused for frame-by-frame stepping",
     )
+    parser.add_argument(
+        "--chat",
+        action="store_true",
+        help="Launch chatbot advice after comparison",
+    )
     args = parser.parse_args()
 
     ref_kp = extract_keypoints(Path(args.reference), args.model, args.device)
@@ -197,6 +280,8 @@ def main():
         score,
         start_paused=args.step,
     )
+    if args.chat:
+        run_chatbot(ref_kp, test_kp, score)
 
 
 if __name__ == "__main__":
