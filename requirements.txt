@@ -1,3 +1,4 @@
+flask
 openvino
 opencv-python
 numpy

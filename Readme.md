@@ -37,3 +37,14 @@ the end of the videos is reached; press `q` to exit.
 
 The script outputs a single numerical score representing the average difference between the two swings. Lower scores indicate more similar swings.
 
+
+## Web Chat and Video Demo
+
+A minimal Flask application is included to display a video player alongside a chat window. Place a video file at `static/your_video.mp4` and run:
+
+```bash
+pip install -r requirements.txt
+python app.py
+```
+
+Then open `http://localhost:5000/` in your browser.
