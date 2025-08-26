@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from pathlib import Path
+import urllib.request
 
 from golf_swing_compare import compare_swings, draw_skeleton, extract_keypoints
 
@@ -72,6 +73,33 @@ def message_handler():
 def serve_video(filename):
     """Serve video files from the data directory."""
     return send_from_directory("data", filename)
+
+
+def _download_video(url: str, dst: Path) -> None:
+    """Download a video from the given URL to the destination path."""
+    urllib.request.urlretrieve(url, dst)
+
+
+@app.route("/set_videos", methods=["POST"])
+def set_videos():
+    """Fetch videos from provided URLs and re-run analysis."""
+    data = request.get_json() or {}
+    ref_url = data.get("reference_url")
+    cur_url = data.get("current_url")
+
+    if ref_url:
+        _download_video(ref_url, REF_VIDEO)
+    if cur_url:
+        _download_video(cur_url, CUR_VIDEO)
+
+    global score
+    score = None
+    if OUT_REF.exists():
+        OUT_REF.unlink()
+    if OUT_CUR.exists():
+        OUT_CUR.unlink()
+    prepare_videos()
+    return jsonify({"score": score})
 
 
 if __name__ == "__main__":

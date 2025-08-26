@@ -13,12 +13,19 @@
     .chat-input button { margin-left: 5px; }
     .video-wrapper { display: flex; }
     .video-wrapper video { width: 50%; }
+    .url-input { margin-bottom: 10px; }
+    .url-input input { width: 45%; margin-right: 5px; }
   </style>
 </head>
 <body>
   <!-- 動画 -->
   <div class="video-container">
     <p>差分スコア: {{ "%.4f"|format(score) if score is not none else "N/A" }}</p>
+    <div class="url-input">
+      <input id="ref-url" type="text" placeholder="Reference video URL" />
+      <input id="cur-url" type="text" placeholder="Current video URL" />
+      <button id="load-btn">更新</button>
+    </div>
     <div class="video-wrapper">
       <video controls>
         <source src="{{ url_for('static', filename='reference_annotated.mp4') }}" type="video/mp4">
@@ -63,6 +70,17 @@
       });
       input.value = '';
       loadMessages();
+    };
+
+    document.getElementById('load-btn').onclick = async () => {
+      const ref = document.getElementById('ref-url').value;
+      const cur = document.getElementById('cur-url').value;
+      await fetch('/set_videos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reference_url: ref, current_url: cur })
+      });
+      location.reload();
     };
 
     // 初期表示と1秒おきの更新
