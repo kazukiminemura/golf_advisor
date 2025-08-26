@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, render_template, send_from_directory
 from pathlib import Path
 import urllib.request
 import json
+from werkzeug.utils import secure_filename
 
 from golf_swing_compare import compare_swings, draw_skeleton, extract_keypoints
 
@@ -36,7 +37,8 @@ def _annotate_video(src: Path, keypoints, dst: Path) -> None:
         ret, frame = cap.read()
         if not ret:
             break
-        draw_skeleton(frame, kp)
+        scaled = [(x * width, y * height, c) for x, y, c in kp]
+        draw_skeleton(frame, scaled)
         writer.write(frame)
 
     cap.release()
@@ -118,6 +120,24 @@ def list_videos():
 def _download_video(url: str, dst: Path) -> None:
     """Download a video from the given URL to the destination path."""
     urllib.request.urlretrieve(url, dst)
+
+
+@app.route("/upload_videos", methods=["POST"])
+def upload_videos():
+    """Upload video files to the data directory."""
+    data_dir = Path("data")
+    saved = {}
+    ref = request.files.get("reference")
+    cur = request.files.get("current")
+    if ref:
+        name = secure_filename(ref.filename)
+        ref.save(data_dir / name)
+        saved["reference_file"] = name
+    if cur:
+        name = secure_filename(cur.filename)
+        cur.save(data_dir / name)
+        saved["current_file"] = name
+    return jsonify(saved)
 
 
 @app.route("/set_videos", methods=["POST"])

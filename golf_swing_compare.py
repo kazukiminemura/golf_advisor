@@ -24,7 +24,7 @@ def preprocess(frame, input_shape):
     return image
 
 
-def postprocess(results, frame_height, frame_width):
+def postprocess(results):
     import cv2
     import numpy as np
 
@@ -37,8 +37,8 @@ def postprocess(results, frame_height, frame_width):
     for i in range(num_kp):
         heatmap = heatmaps[i]
         _, conf, _, point = cv2.minMaxLoc(heatmap)
-        x = int(frame_width * point[0] / heatmap.shape[1])
-        y = int(frame_height * point[1] / heatmap.shape[0])
+        x = point[0] / heatmap.shape[1]
+        y = point[1] / heatmap.shape[0]
         points.append((x, y, conf))
     return points
 
@@ -55,7 +55,7 @@ def extract_keypoints(video_path: Path, model_xml: str, device: str):
             break
         inp = preprocess(frame, compiled_model.input(0).shape)
         results = compiled_model([inp])[output_layer]
-        points = postprocess(results, frame.shape[0], frame.shape[1])
+        points = postprocess(results)
         keypoints.append(points)
     cap.release()
     return keypoints
