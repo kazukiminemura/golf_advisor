@@ -18,13 +18,14 @@
 <body>
   <!-- 動画 -->
   <div class="video-container">
+    <p>差分スコア: {{ "%.4f"|format(score) if score is not none else "N/A" }}</p>
     <div class="video-wrapper">
       <video controls>
-        <source src="{{ url_for('serve_video', filename='reference.mp4') }}" type="video/mp4">
+        <source src="{{ url_for('static', filename='reference_annotated.mp4') }}" type="video/mp4">
         お使いのブラウザは動画再生に対応していません。
       </video>
       <video controls>
-        <source src="{{ url_for('serve_video', filename='current.mp4') }}" type="video/mp4">
+        <source src="{{ url_for('static', filename='current_annotated.mp4') }}" type="video/mp4">
         お使いのブラウザは動画再生に対応していません。
       </video>
     </div>
