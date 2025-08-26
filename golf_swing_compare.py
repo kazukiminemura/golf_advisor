@@ -122,20 +122,18 @@ def show_comparison(
     cap_ref = cv2.VideoCapture(str(ref_path))
     cap_test = cv2.VideoCapture(str(test_path))
     frame_idx = 0
+    frame_count = min(len(ref_kp), len(test_kp))
     paused = start_paused
     combined = None
     while True:
+        # Ensure the frame index wraps around for continuous looping.
+        frame_idx %= frame_count
         # Seek to the current frame index so we can step forwards/backwards.
         cap_ref.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
         cap_test.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
         ret_ref, frame_ref = cap_ref.read()
         ret_test, frame_test = cap_test.read()
-        if (
-            not ret_ref
-            or not ret_test
-            or frame_idx >= len(ref_kp)
-            or frame_idx >= len(test_kp)
-        ):
+        if not ret_ref or not ret_test:
             break
         draw_skeleton(frame_ref, ref_kp[frame_idx])
         draw_skeleton(frame_test, test_kp[frame_idx])
@@ -148,13 +146,13 @@ def show_comparison(
         elif key == ord(" "):
             paused = not paused
         elif key == 83 and paused:  # Right arrow
-            frame_idx += 1
+            frame_idx = (frame_idx + 1) % frame_count
             continue
         elif key == 81 and paused:  # Left arrow
-            frame_idx = max(0, frame_idx - 1)
+            frame_idx = (frame_idx - 1) % frame_count
             continue
         elif not paused:
-            frame_idx += 1
+            frame_idx = (frame_idx + 1) % frame_count
 
     if combined is None:
         combined = np.zeros((480, 2 * 640, 3), dtype=np.uint8)

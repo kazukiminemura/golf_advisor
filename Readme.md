@@ -23,6 +23,7 @@ python golf_swing_compare.py --reference REF.mp4 --test TEST.mp4 --model human-p
 
 Use `--step` to start playback paused for frame-by-frame analysis. During
 playback, press the space bar to pause or resume and use the left/right arrow
-keys to step through frames while paused.
+keys to step through frames while paused. Playback loops automatically when
+the end of the videos is reached; press `q` to exit.
 
 The script outputs a single numerical score representing the average difference between the two swings. Lower scores indicate more similar swings.
