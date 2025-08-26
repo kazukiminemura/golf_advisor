@@ -41,7 +41,11 @@ The script outputs a single numerical score representing the average difference 
 
 ## Web Chat and Video Demo
 
-A minimal Flask application is included to display reference and test videos next to a chat window. Place your videos as `data/reference.mp4` and `data/current.mp4`, then run:
+A minimal Flask application is included to display reference and test videos next to a chat window.  
+The server runs the OpenPose model (`human-pose-estimation-0001.xml` by default) to overlay detected joints on both videos and
+computes a swing difference score which is shown above the players.  
+Place your videos as `data/reference.mp4` and `data/current.mp4`, ensure the model XML file is available in the project root,
+then run:
 
 ```bash
 pip install -r requirements.txt
