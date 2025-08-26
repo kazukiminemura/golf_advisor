@@ -28,11 +28,14 @@ def postprocess(results, frame_height, frame_width):
     import cv2
     import numpy as np
 
-    heatmaps = results[0]
+    # The network output is expected to be a 4D tensor of shape
+    # (1, num_keypoints, height, width). Remove the batch dimension so the
+    # heatmaps are indexed as (num_keypoints, height, width).
+    heatmaps = np.squeeze(results, axis=0)
     points = []
-    num_kp = heatmaps.shape[1]
+    num_kp = heatmaps.shape[0]
     for i in range(num_kp):
-        heatmap = heatmaps[0, i, :, :]
+        heatmap = heatmaps[i]
         _, conf, _, point = cv2.minMaxLoc(heatmap)
         x = int(frame_width * point[0] / heatmap.shape[1])
         y = int(frame_height * point[1] / heatmap.shape[0])
