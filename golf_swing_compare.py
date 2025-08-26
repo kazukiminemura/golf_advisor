@@ -119,15 +119,15 @@ class SwingChatBot:
         significant = sorted(diffs.items(), key=lambda x: x[1], reverse=True)[:3]
         diff_text = ", ".join(f"{name} ({dist:.1f})" for name, dist in significant)
 
-        model_name = "distilgpt2"
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model_name = "rinna/japanese-gpt2-small"
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
         self.model = AutoModelForCausalLM.from_pretrained(model_name)
 
         self.history = (
-            "You are a helpful golf swing coach chatbot.\n"
-            f"Overall swing difference score: {score:.2f}.\n"
-            f"Key differences: {diff_text}.\n"
-            "Provide concise advice.\nCoach:"
+            "あなたは役立つゴルフスイングコーチのチャットボットです。\n"
+            f"スイングの全体的な差分スコア: {score:.2f}。\n"
+            f"主な差分: {diff_text}。\n"
+            "簡潔なアドバイスをしてください。\nコーチ:"
         )
 
     def initial_message(self):
@@ -141,7 +141,7 @@ class SwingChatBot:
         return reply
 
     def ask(self, user):
-        self.history += f"\nYou: {user}\nCoach:"
+        self.history += f"\nユーザー: {user}\nコーチ:"
         input_ids = self.tokenizer.encode(self.history, return_tensors="pt")
         output_ids = self.model.generate(
             input_ids, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
@@ -155,15 +155,15 @@ class SwingChatBot:
 def run_chatbot(ref_kp, test_kp, score):
     """Provide swing advice using a small LLM chatbot in the terminal."""
     bot = SwingChatBot(ref_kp, test_kp, score)
-    print(f"Coach: {bot.initial_message()}")
+    print(f"コーチ: {bot.initial_message()}")
     while True:
         try:
-            user = input("You: ")
+            user = input("あなた: ")
         except EOFError:
             break
-        if user.strip().lower() in {"quit", "exit"}:
+        if user.strip().lower() in {"quit", "exit", "終了"}:
             break
-        print(f"Coach: {bot.ask(user)}")
+        print(f"コーチ: {bot.ask(user)}")
 
 
 # Pairs of keypoints that make up the skeletal connections. The indices
@@ -249,7 +249,7 @@ def show_comparison(
         combined = np.zeros((480, 2 * 640, 3), dtype=np.uint8)
     cv2.putText(
         combined,
-        f"Score: {score:.4f}",
+        f"差分スコア: {score:.4f}",
         (10, combined.shape[0] - 10),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.9,
@@ -280,7 +280,7 @@ def show_comparison_with_chat(
     bot = SwingChatBot(ref_kp, test_kp, score)
 
     root = tk.Tk()
-    root.title("Swing Comparison")
+    root.title("スイング比較")
     video_label = tk.Label(root)
     video_label.pack()
     chat_box = tk.Text(root, height=10)
@@ -291,15 +291,15 @@ def show_comparison_with_chat(
     def send_message(event=None):
         user = entry.get()
         entry.delete(0, tk.END)
-        chat_box.insert(tk.END, f"You: {user}\n")
+        chat_box.insert(tk.END, f"あなた: {user}\n")
         reply = bot.ask(user)
-        chat_box.insert(tk.END, f"Coach: {reply}\n")
+        chat_box.insert(tk.END, f"コーチ: {reply}\n")
         chat_box.see(tk.END)
 
     entry.bind("<Return>", send_message)
-    send_button = tk.Button(root, text="Send", command=send_message)
+    send_button = tk.Button(root, text="送信", command=send_message)
     send_button.pack()
-    chat_box.insert(tk.END, f"Coach: {bot.initial_message()}\n")
+    chat_box.insert(tk.END, f"コーチ: {bot.initial_message()}\n")
 
     cap_ref = cv2.VideoCapture(str(ref_path))
     cap_test = cv2.VideoCapture(str(test_path))
@@ -319,7 +319,7 @@ def show_comparison_with_chat(
             combined = cv2.hconcat([frame_ref, frame_test])
             cv2.putText(
                 combined,
-                f"Score: {score:.4f}",
+                f"差分スコア: {score:.4f}",
                 (10, combined.shape[0] - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.9,
