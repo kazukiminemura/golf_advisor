@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from pathlib import Path
 import urllib.request
+import json
 
 from golf_swing_compare import compare_swings, draw_skeleton, extract_keypoints
 
@@ -14,6 +15,8 @@ REF_VIDEO = Path("data/reference.mp4")
 CUR_VIDEO = Path("data/current.mp4")
 OUT_REF = Path("static/reference_annotated.mp4")
 OUT_CUR = Path("static/current_annotated.mp4")
+REF_KP_JSON = Path("static/reference_keypoints.json")
+CUR_KP_JSON = Path("static/current_keypoints.json")
 
 score = None
 
@@ -40,17 +43,42 @@ def _annotate_video(src: Path, keypoints, dst: Path) -> None:
     writer.release()
 
 
+def _save_keypoints_json(keypoints, fps, dst: Path) -> None:
+    """Save keypoints and fps to a JSON file."""
+    serializable = [[list(map(float, kp)) for kp in frame] for frame in keypoints]
+    with dst.open("w") as f:
+        json.dump({"fps": fps, "keypoints": serializable}, f)
+
+
 def prepare_videos() -> None:
-    """Generate annotated videos and compute the swing score once."""
+    """Generate annotated videos, keypoint JSONs and compute the swing score."""
     global score
-    if score is not None and OUT_REF.exists() and OUT_CUR.exists():
+    if (
+        score is not None
+        and OUT_REF.exists()
+        and OUT_CUR.exists()
+        and REF_KP_JSON.exists()
+        and CUR_KP_JSON.exists()
+    ):
         return
+
+    import cv2
 
     ref_kp = extract_keypoints(REF_VIDEO, MODEL_XML, DEVICE)
     cur_kp = extract_keypoints(CUR_VIDEO, MODEL_XML, DEVICE)
+
+    ref_cap = cv2.VideoCapture(str(REF_VIDEO))
+    ref_fps = ref_cap.get(cv2.CAP_PROP_FPS) or 30.0
+    ref_cap.release()
+    cur_cap = cv2.VideoCapture(str(CUR_VIDEO))
+    cur_fps = cur_cap.get(cv2.CAP_PROP_FPS) or 30.0
+    cur_cap.release()
+
     score = compare_swings(ref_kp, cur_kp)
     _annotate_video(REF_VIDEO, ref_kp, OUT_REF)
     _annotate_video(CUR_VIDEO, cur_kp, OUT_CUR)
+    _save_keypoints_json(ref_kp, ref_fps, REF_KP_JSON)
+    _save_keypoints_json(cur_kp, cur_fps, CUR_KP_JSON)
 
 
 @app.route("/")
@@ -98,6 +126,10 @@ def set_videos():
         OUT_REF.unlink()
     if OUT_CUR.exists():
         OUT_CUR.unlink()
+    if REF_KP_JSON.exists():
+        REF_KP_JSON.unlink()
+    if CUR_KP_JSON.exists():
+        CUR_KP_JSON.unlink()
     prepare_videos()
     return jsonify({"score": score})
 
