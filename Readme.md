@@ -40,11 +40,11 @@ The script outputs a single numerical score representing the average difference 
 
 ## Web Chat and Video Demo
 
-A minimal Flask application is included to display a video player alongside a chat window. Place a video file at `static/your_video.mp4` and run:
+A minimal Flask application is included to display reference and test videos next to a chat window. Place your videos as `data/reference.mp4` and `data/current.mp4`, then run:
 
 ```bash
 pip install -r requirements.txt
 python app.py
 ```
 
-Then open `http://localhost:5000/` in your browser.
+Then open `http://localhost:5000/` in your browser to view the comparison.
