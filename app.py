@@ -1,26 +1,32 @@
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from pathlib import Path
-import urllib.request
 import json
 from werkzeug.utils import secure_filename
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from golf_swing_compare import compare_swings, draw_skeleton, extract_keypoints
 
 app = Flask(__name__)
+tokenizer = AutoTokenizer.from_pretrained("rinna/japanese-gpt2-small", use_fast=False)
+model = AutoModelForCausalLM.from_pretrained("rinna/japanese-gpt2-small")
 # 簡易的なチャットボット用メッセージ履歴をメモリに保持
 messages = [{"role": "assistant", "content": "ゴルフスイングについてご質問ください。"}]
 
 
-def _generate_reply(text: str) -> str:
-    """Return a simple rule-based reply for the chatbot."""
-    lower = text.lower()
-    if "slice" in lower or "スライス" in text:
-        return "スライスを減らすには、インパクトでフェースを閉じる意識を持つと良いでしょう。"
-    if "hook" in lower or "フック" in text:
-        return "フックが出る場合は、グリップを少し弱めて体の回転を意識してみてください。"
-    if "grip" in lower or "グリップ" in text:
-        return "グリップは力み過ぎず、指の付け根でクラブを支えるのがポイントです。"
-    return "リズムとバランスを意識するとスイングが安定します。さらに知りたい点を教えてください。"
+def _generate_reply(_: str) -> str:
+    """Return an LLM-generated reply for the chatbot."""
+    prompt = "あなたは役立つゴルフスイングコーチです。\n"
+    for m in messages:
+        role = "ユーザー" if m["role"] == "user" else "コーチ"
+        prompt += f"{role}: {m['content']}\n"
+    prompt += "コーチ:"
+    input_ids = tokenizer.encode(prompt, return_tensors="pt")
+    output_ids = model.generate(
+        input_ids, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+    )
+    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    reply = response[len(prompt):].strip()
+    return reply
 
 # Paths and model configuration for OpenPose processing
 MODEL_XML = "human-pose-estimation-0001.xml"
@@ -133,11 +139,6 @@ def list_videos():
     return jsonify(files)
 
 
-def _download_video(url: str, dst: Path) -> None:
-    """Download a video from the given URL to the destination path."""
-    urllib.request.urlretrieve(url, dst)
-
-
 @app.route("/upload_videos", methods=["POST"])
 def upload_videos():
     """Upload video files to the data directory."""
@@ -158,10 +159,8 @@ def upload_videos():
 
 @app.route("/set_videos", methods=["POST"])
 def set_videos():
-    """Select videos from local files or URLs and re-run analysis."""
+    """Select videos from local files and re-run analysis."""
     data = request.get_json() or {}
-    ref_url = data.get("reference_url")
-    cur_url = data.get("current_url")
     ref_file = data.get("reference_file")
     cur_file = data.get("current_file")
 
@@ -171,21 +170,11 @@ def set_videos():
     if cur_file:
         CUR_VIDEO = Path("data") / cur_file
 
-    if ref_url:
-        _download_video(ref_url, REF_VIDEO)
-    if cur_url:
-        _download_video(cur_url, CUR_VIDEO)
-
     global score
     score = None
-    if OUT_REF.exists():
-        OUT_REF.unlink()
-    if OUT_CUR.exists():
-        OUT_CUR.unlink()
-    if REF_KP_JSON.exists():
-        REF_KP_JSON.unlink()
-    if CUR_KP_JSON.exists():
-        CUR_KP_JSON.unlink()
+    for p in (OUT_REF, OUT_CUR, REF_KP_JSON, CUR_KP_JSON):
+        if p.exists():
+            p.unlink()
     prepare_videos()
     return jsonify({"score": score})
 
