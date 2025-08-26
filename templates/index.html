@@ -19,6 +19,7 @@
     .url-input input { width: 45%; margin-right: 5px; }
     .file-select { margin-bottom: 10px; }
     .file-select select { width: 45%; margin-right: 5px; }
+    .file-select input[type="file"] { width: 45%; margin-right: 5px; }
   </style>
 </head>
 <body>
@@ -30,7 +31,9 @@
       <input id="cur-url" type="text" placeholder="Current video URL" />
     </div>
     <div class="file-select">
+      <input id="ref-upload" type="file" accept="video/mp4" />
       <select id="ref-file"></select>
+      <input id="cur-upload" type="file" accept="video/mp4" />
       <select id="cur-file"></select>
       <button id="load-btn">更新</button>
     </div>
@@ -89,8 +92,24 @@
     document.getElementById('load-btn').onclick = async () => {
       const ref = document.getElementById('ref-url').value;
       const cur = document.getElementById('cur-url').value;
-      const refFile = document.getElementById('ref-file').value;
-      const curFile = document.getElementById('cur-file').value;
+      const refSel = document.getElementById('ref-file').value;
+      const curSel = document.getElementById('cur-file').value;
+      const refUp = document.getElementById('ref-upload').files[0];
+      const curUp = document.getElementById('cur-upload').files[0];
+
+      let refFile = refSel;
+      let curFile = curSel;
+
+      if (refUp || curUp) {
+        const form = new FormData();
+        if (refUp) form.append('reference', refUp);
+        if (curUp) form.append('current', curUp);
+        const upRes = await fetch('/upload_videos', { method: 'POST', body: form });
+        const uploaded = await upRes.json();
+        if (uploaded.reference_file) refFile = uploaded.reference_file;
+        if (uploaded.current_file) curFile = uploaded.current_file;
+      }
+
       await fetch('/set_videos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -147,8 +166,10 @@
         if (kps) {
           kps.forEach(([x,y,conf]) => {
             if (conf > 0.3) {
+              const px = x * canvas.width;
+              const py = y * canvas.height;
               ctx.beginPath();
-              ctx.arc(x, y, 3, 0, Math.PI * 2);
+              ctx.arc(px, py, 3, 0, Math.PI * 2);
               ctx.fillStyle = 'lime';
               ctx.fill();
             }
@@ -157,8 +178,8 @@
             const pa = kps[a], pb = kps[b];
             if (pa && pb && pa[2] > 0.3 && pb[2] > 0.3) {
               ctx.beginPath();
-              ctx.moveTo(pa[0], pa[1]);
-              ctx.lineTo(pb[0], pb[1]);
+              ctx.moveTo(pa[0] * canvas.width, pa[1] * canvas.height);
+              ctx.lineTo(pb[0] * canvas.width, pb[1] * canvas.height);
               ctx.strokeStyle = 'blue';
               ctx.lineWidth = 2;
               ctx.stroke();
