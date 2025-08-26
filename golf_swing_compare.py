@@ -121,7 +121,9 @@ def show_comparison(ref_path: Path, test_path: Path, ref_kp, test_kp, score):
         draw_skeleton(frame_test, test_kp[frame_idx])
         combined = cv2.hconcat([frame_ref, frame_test])
         cv2.imshow("Swing Comparison", combined)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
+        # Wait for user input to advance frame by frame. Press 'q' to quit.
+        key = cv2.waitKey(0) & 0xFF
+        if key == ord("q"):
             break
         frame_idx += 1
 
