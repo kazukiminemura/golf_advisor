@@ -15,8 +15,6 @@
     .video-item { position: relative; flex: 1; }
     .video-item video { width: 100%; display: block; }
     .video-item canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
-    .url-input { margin-bottom: 10px; }
-    .url-input input { width: 45%; margin-right: 5px; }
     .file-select { margin-bottom: 10px; }
     .file-select select { width: 45%; margin-right: 5px; }
     .file-select input[type="file"] { width: 45%; margin-right: 5px; }
@@ -26,10 +24,6 @@
   <!-- 動画 -->
   <div class="video-container">
     <p>差分スコア: {{ "%.4f"|format(score) if score is not none else "N/A" }}</p>
-    <div class="url-input">
-      <input id="ref-url" type="text" placeholder="Reference video URL" />
-      <input id="cur-url" type="text" placeholder="Current video URL" />
-    </div>
     <div class="file-select">
       <input id="ref-upload" type="file" accept="video/mp4" />
       <select id="ref-file"></select>
@@ -39,14 +33,14 @@
     </div>
     <div class="video-wrapper">
       <div class="video-item">
-        <video id="ref-video" controls>
+        <video id="ref-video" controls loop>
           <source src="{{ url_for('serve_video', filename=ref_video_name) }}" type="video/mp4">
           お使いのブラウザは動画再生に対応していません。
         </video>
         <canvas id="ref-canvas"></canvas>
       </div>
       <div class="video-item">
-        <video id="cur-video" controls>
+        <video id="cur-video" controls loop>
           <source src="{{ url_for('serve_video', filename=cur_video_name) }}" type="video/mp4">
           お使いのブラウザは動画再生に対応していません。
         </video>
@@ -92,8 +86,6 @@
     };
 
     document.getElementById('load-btn').onclick = async () => {
-      const ref = document.getElementById('ref-url').value;
-      const cur = document.getElementById('cur-url').value;
       const refSel = document.getElementById('ref-file').value;
       const curSel = document.getElementById('cur-file').value;
       const refUp = document.getElementById('ref-upload').files[0];
@@ -115,7 +107,7 @@
       await fetch('/set_videos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reference_url: ref, current_url: cur, reference_file: refFile, current_file: curFile })
+        body: JSON.stringify({ reference_file: refFile, current_file: curFile })
       });
       location.reload();
     };
@@ -205,6 +197,21 @@
     loadMessages();
     loadVideoList();
     setInterval(loadMessages, 1000);
+
+    const refVideo = document.getElementById('ref-video');
+    const curVideo = document.getElementById('cur-video');
+
+    function syncPlay(from, to) {
+      if (to.paused) {
+        to.currentTime = from.currentTime;
+        to.play();
+      }
+    }
+
+    refVideo.addEventListener('play', () => syncPlay(refVideo, curVideo));
+    curVideo.addEventListener('play', () => syncPlay(curVideo, refVideo));
+    refVideo.addEventListener('pause', () => { if (!curVideo.paused) curVideo.pause(); });
+    curVideo.addEventListener('pause', () => { if (!refVideo.paused) refVideo.pause(); });
   </script>
 </body>
 </html>
