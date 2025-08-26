@@ -1,3 +1,5 @@
 openvino
 opencv-python
 numpy
+transformers
+torch
