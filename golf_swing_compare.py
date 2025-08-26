@@ -103,29 +103,58 @@ def draw_skeleton(frame, keypoints):
                 cv2.line(frame, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
 
 
-def show_comparison(ref_path: Path, test_path: Path, ref_kp, test_kp, score):
-    """Display the reference and test swings side by side with skeletons."""
+def show_comparison(
+    ref_path: Path,
+    test_path: Path,
+    ref_kp,
+    test_kp,
+    score,
+    start_paused: bool = False,
+):
+    """Display the reference and test swings side by side with skeletons.
+
+    Press space to pause/resume. While paused, use the left/right arrow keys
+    to step through frames. Press ``q`` to exit.
+    """
     import cv2
     import numpy as np
 
     cap_ref = cv2.VideoCapture(str(ref_path))
     cap_test = cv2.VideoCapture(str(test_path))
     frame_idx = 0
+    paused = start_paused
     combined = None
     while True:
+        # Seek to the current frame index so we can step forwards/backwards.
+        cap_ref.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        cap_test.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
         ret_ref, frame_ref = cap_ref.read()
         ret_test, frame_test = cap_test.read()
-        if not ret_ref or not ret_test or frame_idx >= len(ref_kp) or frame_idx >= len(test_kp):
+        if (
+            not ret_ref
+            or not ret_test
+            or frame_idx >= len(ref_kp)
+            or frame_idx >= len(test_kp)
+        ):
             break
         draw_skeleton(frame_ref, ref_kp[frame_idx])
         draw_skeleton(frame_test, test_kp[frame_idx])
         combined = cv2.hconcat([frame_ref, frame_test])
         cv2.imshow("Swing Comparison", combined)
-        # Wait for user input to advance frame by frame. Press 'q' to quit.
-        key = cv2.waitKey(0) & 0xFF
+
+        key = cv2.waitKey(0 if paused else 30) & 0xFF
         if key == ord("q"):
             break
-        frame_idx += 1
+        elif key == ord(" "):
+            paused = not paused
+        elif key == 83 and paused:  # Right arrow
+            frame_idx += 1
+            continue
+        elif key == 81 and paused:  # Left arrow
+            frame_idx = max(0, frame_idx - 1)
+            continue
+        elif not paused:
+            frame_idx += 1
 
     if combined is None:
         combined = np.zeros((480, 2 * 640, 3), dtype=np.uint8)
@@ -151,13 +180,25 @@ def main():
     parser.add_argument("--test", required=True, help="Test swing video path")
     parser.add_argument("--model", required=True, help="Path to OpenVINO pose model (.xml)")
     parser.add_argument("--device", default="CPU", help="Device name for inference")
+    parser.add_argument(
+        "--step",
+        action="store_true",
+        help="Start playback paused for frame-by-frame stepping",
+    )
     args = parser.parse_args()
 
     ref_kp = extract_keypoints(Path(args.reference), args.model, args.device)
     test_kp = extract_keypoints(Path(args.test), args.model, args.device)
     score = compare_swings(ref_kp, test_kp)
     print(f"Swing difference score: {score:.4f}")
-    show_comparison(Path(args.reference), Path(args.test), ref_kp, test_kp, score)
+    show_comparison(
+        Path(args.reference),
+        Path(args.test),
+        ref_kp,
+        test_kp,
+        score,
+        start_paused=args.step,
+    )
 
 
 if __name__ == "__main__":
