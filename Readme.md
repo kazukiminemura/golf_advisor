@@ -12,7 +12,7 @@ This project provides a simple command-line tool to compare two golf swing video
 Install the requirements:
 
 ```bash
-pip install openvino opencv-python numpy
+pip install openvino opencv-python openvino-dev numpy 
 ```
 
 ## Usage
