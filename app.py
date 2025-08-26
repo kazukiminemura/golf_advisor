@@ -7,8 +7,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from golf_swing_compare import compare_swings, draw_skeleton, extract_keypoints
 
 app = Flask(__name__)
-tokenizer = AutoTokenizer.from_pretrained("rinna/japanese-gpt2-small", use_fast=False)
-model = AutoModelForCausalLM.from_pretrained("rinna/japanese-gpt2-small")
+LLAMA_MODEL = "meta-llama/Llama-2-16b-chat-hf"
+tokenizer = AutoTokenizer.from_pretrained(LLAMA_MODEL)
+model = AutoModelForCausalLM.from_pretrained(LLAMA_MODEL)
 # 簡易的なチャットボット用メッセージ履歴をメモリに保持
 messages = [{"role": "assistant", "content": "ゴルフスイングについてご質問ください。"}]
 
