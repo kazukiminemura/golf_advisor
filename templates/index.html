@@ -14,9 +14,11 @@
     .video-wrapper { display: flex; }
     .video-item { position: relative; flex: 1; }
     .video-item video { width: 100%; display: block; }
-    .video-item canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
+    .video-item canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
     .url-input { margin-bottom: 10px; }
     .url-input input { width: 45%; margin-right: 5px; }
+    .file-select { margin-bottom: 10px; }
+    .file-select select { width: 45%; margin-right: 5px; }
   </style>
 </head>
 <body>
@@ -26,19 +28,23 @@
     <div class="url-input">
       <input id="ref-url" type="text" placeholder="Reference video URL" />
       <input id="cur-url" type="text" placeholder="Current video URL" />
+    </div>
+    <div class="file-select">
+      <select id="ref-file"></select>
+      <select id="cur-file"></select>
       <button id="load-btn">更新</button>
     </div>
     <div class="video-wrapper">
       <div class="video-item">
         <video id="ref-video" controls>
-          <source src="{{ url_for('serve_video', filename='reference.mp4') }}" type="video/mp4">
+          <source src="{{ url_for('serve_video', filename=ref_video_name) }}" type="video/mp4">
           お使いのブラウザは動画再生に対応していません。
         </video>
         <canvas id="ref-canvas"></canvas>
       </div>
       <div class="video-item">
         <video id="cur-video" controls>
-          <source src="{{ url_for('serve_video', filename='current.mp4') }}" type="video/mp4">
+          <source src="{{ url_for('serve_video', filename=cur_video_name) }}" type="video/mp4">
           お使いのブラウザは動画再生に対応していません。
         </video>
         <canvas id="cur-canvas"></canvas>
@@ -83,13 +89,36 @@
     document.getElementById('load-btn').onclick = async () => {
       const ref = document.getElementById('ref-url').value;
       const cur = document.getElementById('cur-url').value;
+      const refFile = document.getElementById('ref-file').value;
+      const curFile = document.getElementById('cur-file').value;
       await fetch('/set_videos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reference_url: ref, current_url: cur })
+        body: JSON.stringify({ reference_url: ref, current_url: cur, reference_file: refFile, current_file: curFile })
       });
       location.reload();
     };
+
+    async function loadVideoList() {
+      const res = await fetch('/list_videos');
+      const files = await res.json();
+      const refSel = document.getElementById('ref-file');
+      const curSel = document.getElementById('cur-file');
+      refSel.innerHTML = '';
+      curSel.innerHTML = '';
+      files.forEach(f => {
+        const o1 = document.createElement('option');
+        o1.value = f;
+        o1.textContent = f;
+        refSel.appendChild(o1);
+        const o2 = document.createElement('option');
+        o2.value = f;
+        o2.textContent = f;
+        curSel.appendChild(o2);
+      });
+      refSel.value = '{{ ref_video_name }}';
+      curSel.value = '{{ cur_video_name }}';
+    }
 
     const POSE_PAIRS = [
       [1,2],[2,3],[3,4],
@@ -151,6 +180,7 @@
 
     // 初期表示と1秒おきの更新
     loadMessages();
+    loadVideoList();
     setInterval(loadMessages, 1000);
   </script>
 </body>
