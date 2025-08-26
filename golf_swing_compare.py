@@ -109,32 +109,53 @@ def analyze_differences(ref_kp, test_kp):
     return {names.get(i, str(i)): diff_avg[i] for i in range(num_kp)}
 
 
+class SwingChatBot:
+    """Simple wrapper around a small language model for swing advice."""
+
+    def __init__(self, ref_kp, test_kp, score):
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        diffs = analyze_differences(ref_kp, test_kp)
+        significant = sorted(diffs.items(), key=lambda x: x[1], reverse=True)[:3]
+        diff_text = ", ".join(f"{name} ({dist:.1f})" for name, dist in significant)
+
+        model_name = "distilgpt2"
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModelForCausalLM.from_pretrained(model_name)
+
+        self.history = (
+            "You are a helpful golf swing coach chatbot.\n"
+            f"Overall swing difference score: {score:.2f}.\n"
+            f"Key differences: {diff_text}.\n"
+            "Provide concise advice.\nCoach:"
+        )
+
+    def initial_message(self):
+        input_ids = self.tokenizer.encode(self.history, return_tensors="pt")
+        output_ids = self.model.generate(
+            input_ids, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+        )
+        response = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        reply = response[len(self.history) :].strip()
+        self.history += " " + reply
+        return reply
+
+    def ask(self, user):
+        self.history += f"\nYou: {user}\nCoach:"
+        input_ids = self.tokenizer.encode(self.history, return_tensors="pt")
+        output_ids = self.model.generate(
+            input_ids, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+        )
+        response = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        reply = response[len(self.history) :].strip()
+        self.history += " " + reply
+        return reply
+
+
 def run_chatbot(ref_kp, test_kp, score):
-    """Provide swing advice using a small LLM chatbot."""
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
-    diffs = analyze_differences(ref_kp, test_kp)
-    significant = sorted(diffs.items(), key=lambda x: x[1], reverse=True)[:3]
-    diff_text = ", ".join(f"{name} ({dist:.1f})" for name, dist in significant)
-
-    model_name = "distilgpt2"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-
-    system_prompt = (
-        "You are a helpful golf swing coach chatbot.\n"
-        f"Overall swing difference score: {score:.2f}.\n"
-        f"Key differences: {diff_text}.\n"
-        "Provide concise advice.\nCoach:"
-    )
-    input_ids = tokenizer.encode(system_prompt, return_tensors="pt")
-    output_ids = model.generate(
-        input_ids, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
-    )
-    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    reply = response[len(system_prompt) :].strip()
-    print(f"Coach: {reply}")
-    history = system_prompt + " " + reply
+    """Provide swing advice using a small LLM chatbot in the terminal."""
+    bot = SwingChatBot(ref_kp, test_kp, score)
+    print(f"Coach: {bot.initial_message()}")
     while True:
         try:
             user = input("You: ")
@@ -142,15 +163,7 @@ def run_chatbot(ref_kp, test_kp, score):
             break
         if user.strip().lower() in {"quit", "exit"}:
             break
-        history += f"\nYou: {user}\nCoach:"
-        input_ids = tokenizer.encode(history, return_tensors="pt")
-        output_ids = model.generate(
-            input_ids, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
-        )
-        response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-        reply = response[len(history) :].strip()
-        print(f"Coach: {reply}")
-        history += " " + reply
+        print(f"Coach: {bot.ask(user)}")
 
 
 # Pairs of keypoints that make up the skeletal connections. The indices
@@ -250,6 +263,96 @@ def show_comparison(
     cv2.destroyAllWindows()
 
 
+def show_comparison_with_chat(
+    ref_path: Path,
+    test_path: Path,
+    ref_kp,
+    test_kp,
+    score,
+    start_paused: bool = False,
+):
+    """Display swings alongside a chat panel in a single window."""
+    import cv2
+    import numpy as np
+    import tkinter as tk
+    from PIL import Image, ImageTk
+
+    bot = SwingChatBot(ref_kp, test_kp, score)
+
+    root = tk.Tk()
+    root.title("Swing Comparison")
+    video_label = tk.Label(root)
+    video_label.pack()
+    chat_box = tk.Text(root, height=10)
+    chat_box.pack(fill=tk.BOTH, expand=True)
+    entry = tk.Entry(root)
+    entry.pack(fill=tk.X)
+
+    def send_message(event=None):
+        user = entry.get()
+        entry.delete(0, tk.END)
+        chat_box.insert(tk.END, f"You: {user}\n")
+        reply = bot.ask(user)
+        chat_box.insert(tk.END, f"Coach: {reply}\n")
+        chat_box.see(tk.END)
+
+    entry.bind("<Return>", send_message)
+    send_button = tk.Button(root, text="Send", command=send_message)
+    send_button.pack()
+    chat_box.insert(tk.END, f"Coach: {bot.initial_message()}\n")
+
+    cap_ref = cv2.VideoCapture(str(ref_path))
+    cap_test = cv2.VideoCapture(str(test_path))
+    frame_idx = 0
+    frame_count = min(len(ref_kp), len(test_kp))
+    paused = start_paused
+
+    def update_frame():
+        nonlocal frame_idx
+        cap_ref.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        cap_test.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        ret_ref, frame_ref = cap_ref.read()
+        ret_test, frame_test = cap_test.read()
+        if ret_ref and ret_test:
+            draw_skeleton(frame_ref, ref_kp[frame_idx])
+            draw_skeleton(frame_test, test_kp[frame_idx])
+            combined = cv2.hconcat([frame_ref, frame_test])
+            cv2.putText(
+                combined,
+                f"Score: {score:.4f}",
+                (10, combined.shape[0] - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.9,
+                (0, 255, 0),
+                2,
+            )
+            img = cv2.cvtColor(combined, cv2.COLOR_BGR2RGB)
+            imgtk = ImageTk.PhotoImage(Image.fromarray(img))
+            video_label.imgtk = imgtk
+            video_label.configure(image=imgtk)
+        if not paused:
+            frame_idx = (frame_idx + 1) % frame_count
+        root.after(30, update_frame)
+
+    def toggle_pause(event=None):
+        nonlocal paused
+        paused = not paused
+
+    def step(delta):
+        nonlocal frame_idx
+        frame_idx = (frame_idx + delta) % frame_count
+
+    root.bind("<space>", toggle_pause)
+    root.bind("<Left>", lambda e: step(-1))
+    root.bind("<Right>", lambda e: step(1))
+
+    update_frame()
+    root.mainloop()
+    cap_ref.release()
+    cap_test.release()
+    cv2.destroyAllWindows()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Compare golf swings using OpenVINO OpenPose")
     parser.add_argument("--reference", required=True, help="Reference swing video path")
@@ -264,7 +367,7 @@ def main():
     parser.add_argument(
         "--chat",
         action="store_true",
-        help="Launch chatbot advice after comparison",
+        help="Show chat panel alongside comparison",
     )
     args = parser.parse_args()
 
@@ -272,16 +375,24 @@ def main():
     test_kp = extract_keypoints(Path(args.test), args.model, args.device)
     score = compare_swings(ref_kp, test_kp)
     print(f"Swing difference score: {score:.4f}")
-    show_comparison(
-        Path(args.reference),
-        Path(args.test),
-        ref_kp,
-        test_kp,
-        score,
-        start_paused=args.step,
-    )
     if args.chat:
-        run_chatbot(ref_kp, test_kp, score)
+        show_comparison_with_chat(
+            Path(args.reference),
+            Path(args.test),
+            ref_kp,
+            test_kp,
+            score,
+            start_paused=args.step,
+        )
+    else:
+        show_comparison(
+            Path(args.reference),
+            Path(args.test),
+            ref_kp,
+            test_kp,
+            score,
+            start_paused=args.step,
+        )
 
 
 if __name__ == "__main__":
