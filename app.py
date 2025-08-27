@@ -25,20 +25,30 @@ ENABLE_CHATBOT = os.environ.get("ENABLE_CHATBOT", "").lower() in {
 tokenizer = model = None  # Lazy-initialized chatbot model
 
 if ENABLE_CHATBOT:
-    from transformers import AutoModelForCausalLM, AutoTokenizer, modeling_utils
+    from transformers import (
+        AutoModelForCausalLM,
+        AutoTokenizer,
+        BitsAndBytesConfig,
+        modeling_utils,
+    )
     import torch
 
     if getattr(modeling_utils, "ALL_PARALLEL_STYLES", None) is None:  # pragma: no cover - defensive
         modeling_utils.ALL_PARALLEL_STYLES = []
 
     QWEN_MODEL = "Qwen/Qwen3-8B"
+    QWEN_QUANT_CONFIG = BitsAndBytesConfig(load_in_8bit=True)
 
     def _ensure_chatbot_model() -> None:
         """Load the LLM and tokenizer on demand to conserve memory."""
         global tokenizer, model
         if tokenizer is None or model is None:
             tokenizer = AutoTokenizer.from_pretrained(QWEN_MODEL)
-            model = AutoModelForCausalLM.from_pretrained(QWEN_MODEL)
+            model = AutoModelForCausalLM.from_pretrained(
+                QWEN_MODEL,
+                device_map="auto",
+                quantization_config=QWEN_QUANT_CONFIG,
+            )
 else:  # pragma: no cover - simple fallback
 
     def _ensure_chatbot_model() -> None:  # pragma: no cover - no-op when disabled
