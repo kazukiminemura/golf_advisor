@@ -54,6 +54,6 @@ python app.py
 
 Then open `http://localhost:5000/` in your browser to view the comparison.
 
-The chat panel uses a Llama 16B model to provide golf swing tips in Japanese.
+The chat panel now uses the Qwen 8B model to provide golf swing tips in Japanese.
 Messages are handled on the server and are not persisted; restart the server
 to clear the conversation.

@@ -7,9 +7,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from golf_swing_compare import compare_swings, draw_skeleton, extract_keypoints
 
 app = Flask(__name__)
-LLAMA_MODEL = "ELYZA/Llama-3-ELYZA-JP-8B"
-tokenizer = AutoTokenizer.from_pretrained(LLAMA_MODEL)
-model = AutoModelForCausalLM.from_pretrained(LLAMA_MODEL)
+# Qwen 8B モデルを使用してチャットボットを構築
+QWEN_MODEL = "Qwen/Qwen1.5-8B"
+tokenizer = AutoTokenizer.from_pretrained(QWEN_MODEL)
+model = AutoModelForCausalLM.from_pretrained(QWEN_MODEL)
 # 簡易的なチャットボット用メッセージ履歴をメモリに保持
 messages = [{"role": "assistant", "content": "ゴルフスイングについてご質問ください。"}]
 
