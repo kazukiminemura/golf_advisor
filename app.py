@@ -37,7 +37,10 @@ if ENABLE_CHATBOT:
         modeling_utils.ALL_PARALLEL_STYLES = []
 
     QWEN_MODEL = "Qwen/Qwen3-8B"
-    QWEN_QUANT_CONFIG = BitsAndBytesConfig(load_in_8bit=True)
+    QWEN_QUANT_CONFIG = BitsAndBytesConfig(
+        load_in_8bit=True,
+        llm_int8_enable_fp32_cpu_offload=True,
+    )
 
     def _ensure_chatbot_model() -> None:
         """Load the LLM and tokenizer on demand to conserve memory."""
@@ -46,9 +49,10 @@ if ENABLE_CHATBOT:
             tokenizer = AutoTokenizer.from_pretrained(
                 QWEN_MODEL, trust_remote_code=True
             )
+            device_map = {"": "cuda:0"} if torch.cuda.is_available() else {"": "cpu"}
             model = AutoModelForCausalLM.from_pretrained(
                 QWEN_MODEL,
-                device_map="auto",
+                device_map=device_map,
                 quantization_config=QWEN_QUANT_CONFIG,
                 trust_remote_code=True,
             )
