@@ -119,8 +119,12 @@ class SwingChatBot:
         diff_text = ", ".join(f"{name} ({dist:.1f})" for name, dist in significant)
 
         model_name = "Qwen/Qwen3-8B"
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)  # Load tokenizer
-        self.model = AutoModelForCausalLM.from_pretrained(model_name)  # Load model
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_name, trust_remote_code=True
+        )  # Load tokenizer
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_name, trust_remote_code=True
+        )  # Load model
 
         self.history = (
             "あなたは役立つゴルフスイングコーチのチャットボットです。\n"
@@ -132,7 +136,12 @@ class SwingChatBot:
     def initial_message(self):
         inputs = self.tokenizer(self.history, return_tensors="pt")  # Tokenize history
         output_ids = self.model.generate(
-            **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+            **inputs,
+            max_new_tokens=200,
+            temperature=0.7,
+            do_sample=True,
+            top_p=0.95,
+            top_k=50,
         )  # Generate reply
         response = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
         reply = response[len(self.history) :].strip()  # Slice out new text
@@ -143,7 +152,12 @@ class SwingChatBot:
         self.history += f"\nユーザー: {user}\nコーチ:"  # Add user message
         inputs = self.tokenizer(self.history, return_tensors="pt")  # Tokenize
         output_ids = self.model.generate(
-            **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+            **inputs,
+            max_new_tokens=200,
+            temperature=0.7,
+            do_sample=True,
+            top_p=0.95,
+            top_k=50,
         )  # Generate reply
         response = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
         reply = response[len(self.history) :].strip()  # Slice out new text
