@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify, render_template, send_from_directory
 from pathlib import Path
 import json
 import os
+import platform
+import subprocess
 from werkzeug.utils import secure_filename
 import psutil
 
@@ -82,11 +84,42 @@ def get_gpu_usage() -> float:
         pynvml.nvmlShutdown()
         return gpu_util
     except Exception:
-        return 0.0
+        try:  # Fallback to nvidia-smi on systems including Windows
+            out = subprocess.check_output(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=utilization.gpu",
+                    "--format=csv,noheader,nounits",
+                ],
+                encoding="utf-8",
+                stderr=subprocess.DEVNULL,
+            )
+            return float(out.strip().splitlines()[0])
+        except Exception:
+            return 0.0
 
 
 def get_npu_usage() -> float:
-    """Placeholder for NPU utilization."""
+    """Best-effort NPU utilization percentage.
+
+    Windows 11 exposes NPU usage through the ``AI Accelerator`` performance
+    counters. When unavailable this function returns ``0``.
+    """
+    if platform.system() == "Windows":
+        try:
+            cmd = (
+                "Get-Counter '\\AI Accelerator(*)\\Usage Percentage' "
+                "| Select -First 1 -ExpandProperty CounterSamples "
+                "| Select -ExpandProperty CookedValue"
+            )
+            out = subprocess.check_output(
+                ["powershell", "-NoProfile", "-Command", cmd],
+                encoding="utf-8",
+                stderr=subprocess.DEVNULL,
+            )
+            return float(out.strip())
+        except Exception:
+            return 0.0
     return 0.0
 
 
