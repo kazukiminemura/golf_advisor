@@ -26,6 +26,10 @@ bot = None
 MAX_MESSAGES = 20
 messages = []  # Store conversation history for the chatbot
 
+# Cached keypoints for chatbot initialization
+ref_keypoints = None
+cur_keypoints = None
+
 # Paths and model configuration for OpenPose processing
 # Use the INT8 variant of the model for faster inference by default.
 MODEL_XML = "intel/human-pose-estimation-0001/FP16/human-pose-estimation-0001.xml"
@@ -122,9 +126,29 @@ def _save_keypoints_json(keypoints, fps, dst: Path) -> None:
         json.dump({"fps": fps, "keypoints": serializable}, f)
 
 
+def init_chatbot() -> None:
+    """Initialize chatbot using cached keypoints if enabled."""
+    global bot, messages, ref_keypoints, cur_keypoints, score
+    if not ENABLE_CHATBOT:
+        bot = None
+        messages.clear()
+        return
+    if bot is not None:
+        return  # Already initialized
+    if ref_keypoints is None or cur_keypoints is None or score is None:
+        return
+    try:
+        bot = SwingChatBot(ref_keypoints, cur_keypoints, score)
+        messages = [{"role": "assistant", "content": bot.initial_message()}]
+    except Exception as exc:  # noqa: BLE001
+        app.logger.exception("Failed to initialize chatbot: %s", exc)
+        bot = None
+        messages.clear()
+
+
 def prepare_videos() -> None:
     """Generate annotated videos, keypoint JSONs and compute the swing score."""
-    global score
+    global score, ref_keypoints, cur_keypoints
     if (
         score is not None
         and OUT_REF.exists()
@@ -137,8 +161,8 @@ def prepare_videos() -> None:
     import cv2
 
     # Extract keypoints for reference and current videos
-    ref_kp = extract_keypoints(REF_VIDEO, MODEL_XML, DEVICE)
-    cur_kp = extract_keypoints(CUR_VIDEO, MODEL_XML, DEVICE)
+    ref_keypoints = extract_keypoints(REF_VIDEO, MODEL_XML, DEVICE)
+    cur_keypoints = extract_keypoints(CUR_VIDEO, MODEL_XML, DEVICE)
 
     # Retrieve frame rates for later JSON output
     ref_cap = cv2.VideoCapture(str(REF_VIDEO))
@@ -149,23 +173,11 @@ def prepare_videos() -> None:
     cur_cap.release()
 
     # Compute similarity score and produce annotated videos/JSON files
-    score = compare_swings(ref_kp, cur_kp)
-    _annotate_video(REF_VIDEO, ref_kp, OUT_REF)
-    _annotate_video(CUR_VIDEO, cur_kp, OUT_CUR)
-    _save_keypoints_json(ref_kp, ref_fps, REF_KP_JSON)
-    _save_keypoints_json(cur_kp, cur_fps, CUR_KP_JSON)
-    global bot, messages
-    if ENABLE_CHATBOT:
-        try:
-            bot = SwingChatBot(ref_kp, cur_kp, score)
-            messages = [{"role": "assistant", "content": bot.initial_message()}]
-        except Exception as exc:  # noqa: BLE001
-            app.logger.exception("Failed to initialize chatbot: %s", exc)
-            bot = None
-            messages.clear()
-    else:
-        bot = None
-        messages.clear()
+    score = compare_swings(ref_keypoints, cur_keypoints)
+    _annotate_video(REF_VIDEO, ref_keypoints, OUT_REF)
+    _annotate_video(CUR_VIDEO, cur_keypoints, OUT_CUR)
+    _save_keypoints_json(ref_keypoints, ref_fps, REF_KP_JSON)
+    _save_keypoints_json(cur_keypoints, cur_fps, CUR_KP_JSON)
 
 
 @app.route("/")
@@ -249,6 +261,7 @@ def system_usage():
 def analyze():
     """Run pose analysis and return the score."""
     prepare_videos()  # Ensure videos are processed
+    init_chatbot()  # Initialize chatbot separately
     return jsonify({"score": score})  # Send back computed score
 
 
@@ -265,8 +278,12 @@ def set_videos():
     if cur_file:
         CUR_VIDEO = Path("data") / cur_file  # Update current video path
 
-    global score
+    global score, bot, messages, ref_keypoints, cur_keypoints
     score = None  # Clear previous score
+    bot = None
+    messages.clear()
+    ref_keypoints = None
+    cur_keypoints = None
     for p in (OUT_REF, OUT_CUR, REF_KP_JSON, CUR_KP_JSON):
         if p.exists():
             p.unlink()  # Remove previous output files
