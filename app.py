@@ -127,29 +127,56 @@ def _save_keypoints_json(keypoints, fps, dst: Path) -> None:
         json.dump({"fps": fps, "keypoints": serializable}, f)
 
 
-def _init_chatbot_sync() -> None:
-    """Initialize chatbot using cached keypoints if enabled."""
+def _init_chatbot_sync() -> bool:
+    """Initialize chatbot using cached keypoints if enabled.
+    
+    Returns:
+        bool: True if chatbot was successfully initialized, False otherwise.
+    """
     global bot, messages, ref_keypoints, cur_keypoints, score
+    
     if not ENABLE_CHATBOT:
+        app.logger.info("Chatbot is disabled by configuration")
         bot = None
         messages.clear()
-        return
+        return False
+        
     if bot is not None:
-        return  # Already initialized
-    if ref_keypoints is None or cur_keypoints is None or score is None:
-        return
+        app.logger.info("Chatbot already initialized")
+        return True  # Already initialized
+        
+    # Check if all required data is available
+    if ref_keypoints is None:
+        app.logger.warning("Reference keypoints not available for chatbot initialization")
+        return False
+    if cur_keypoints is None:
+        app.logger.warning("Current keypoints not available for chatbot initialization")
+        return False
+    if score is None:
+        app.logger.warning("Score not available for chatbot initialization")
+        return False
+    
     try:
+        app.logger.info("Initializing chatbot with keypoints and score")
         bot = SwingChatBot(ref_keypoints, cur_keypoints, score)
-        messages = [{"role": "assistant", "content": bot.initial_message()}]
-    except Exception as exc:  # noqa: BLE001
+        initial_msg = bot.initial_message()
+        messages = [{"role": "assistant", "content": initial_msg}]
+        app.logger.info("Chatbot initialized successfully")
+        return True
+    except Exception as exc:
         app.logger.exception("Failed to initialize chatbot: %s", exc)
         bot = None
         messages.clear()
+        return False
 
 
-async def init_chatbot() -> None:
-    """Asynchronously initialize the chatbot."""
-    await asyncio.to_thread(_init_chatbot_sync)
+async def init_chatbot() -> bool:
+    """Asynchronously initialize the chatbot.
+    
+    Returns:
+        bool: True if chatbot was successfully initialized, False otherwise.
+    """
+    return await asyncio.to_thread(_init_chatbot_sync)
 
 
 def _prepare_videos_sync() -> None:
@@ -162,12 +189,17 @@ def _prepare_videos_sync() -> None:
         and REF_KP_JSON.exists()
         and CUR_KP_JSON.exists()
     ):
+        app.logger.info("Videos already processed, skipping")
         return  # Skip processing if results already exist
 
     import cv2
 
+    app.logger.info("Starting video analysis...")
+    
     # Extract keypoints for reference and current videos
+    app.logger.info("Extracting keypoints from reference video")
     ref_keypoints = extract_keypoints(REF_VIDEO, MODEL_XML, DEVICE)
+    app.logger.info("Extracting keypoints from current video")
     cur_keypoints = extract_keypoints(CUR_VIDEO, MODEL_XML, DEVICE)
 
     # Retrieve frame rates for later JSON output
@@ -179,11 +211,17 @@ def _prepare_videos_sync() -> None:
     cur_cap.release()
 
     # Compute similarity score and produce annotated videos/JSON files
+    app.logger.info("Computing swing similarity score")
     score = compare_swings(ref_keypoints, cur_keypoints)
+    app.logger.info(f"Computed score: {score}")
+    
+    app.logger.info("Creating annotated videos")
     _annotate_video(REF_VIDEO, ref_keypoints, OUT_REF)
     _annotate_video(CUR_VIDEO, cur_keypoints, OUT_CUR)
     _save_keypoints_json(ref_keypoints, ref_fps, REF_KP_JSON)
     _save_keypoints_json(cur_keypoints, cur_fps, CUR_KP_JSON)
+    
+    app.logger.info("Video analysis completed successfully")
 
 
 async def prepare_videos() -> None:
@@ -216,24 +254,40 @@ def message_handler():
             return jsonify({"reply": "チャットボットは無効化されています。"})
         return jsonify([])
 
-    # Ensure the chatbot is initialized when keypoints are available
-    if bot is None:
-        _init_chatbot_sync()
-
     if request.method == "POST":
         data = request.get_json() or {}
-        user_msg = data.get("message", "")
+        user_msg = data.get("message", "").strip()
+        
+        if not user_msg:
+            return jsonify({"reply": "メッセージを入力してください。"})
+
+        # Try to initialize the chatbot if it's not ready
         if bot is None:
-            return jsonify({"reply": "チャットボットは準備中です。"})
-        messages.append({"role": "user", "content": user_msg})
-        if len(messages) > MAX_MESSAGES:
-            del messages[:-MAX_MESSAGES]
-        reply = bot.ask(user_msg)
-        messages.append({"role": "assistant", "content": reply})
-        if len(messages) > MAX_MESSAGES:
-            del messages[:-MAX_MESSAGES]
-        return jsonify({"reply": reply})
+            success = _init_chatbot_sync()
+            if not success:
+                return jsonify({"reply": "チャットボットは準備中です。まず動画を分析してください。"})
+
+        try:
+            # Add user message to conversation history
+            messages.append({"role": "user", "content": user_msg})
+            if len(messages) > MAX_MESSAGES:
+                messages[:] = messages[-MAX_MESSAGES:]
+            
+            # Get bot response
+            reply = bot.ask(user_msg)
+            
+            # Add bot response to conversation history
+            messages.append({"role": "assistant", "content": reply})
+            if len(messages) > MAX_MESSAGES:
+                messages[:] = messages[-MAX_MESSAGES:]
+            
+            return jsonify({"reply": reply})
+            
+        except Exception as exc:
+            app.logger.exception("Error in chatbot conversation: %s", exc)
+            return jsonify({"reply": "申し訳ございませんが、エラーが発生しました。もう一度お試しください。"})
     else:
+        # GET request - return conversation history
         return jsonify(messages if bot is not None else [])
 
 
@@ -254,6 +308,7 @@ def list_videos():
 def upload_videos():
     """Upload video files to the data directory."""
     data_dir = Path("data")  # Directory where videos are stored
+    data_dir.mkdir(exist_ok=True)  # Ensure directory exists
     saved = {}
     ref = request.files.get("reference")  # Reference video from request
     cur = request.files.get("current")  # Current video from request
@@ -280,15 +335,35 @@ def system_usage():
 @app.route("/analyze", methods=["POST"])
 async def analyze():
     """Run pose analysis and return the score."""
-    await prepare_videos()  # Ensure videos are processed
-    return jsonify({"score": score})  # Send back computed score
+    try:
+        await prepare_videos()  # Ensure videos are processed
+        
+        # After video processing, try to initialize chatbot automatically
+        if ENABLE_CHATBOT:
+            success = await init_chatbot()
+            if success:
+                app.logger.info("Chatbot automatically initialized after analysis")
+            else:
+                app.logger.warning("Failed to automatically initialize chatbot after analysis")
+        
+        return jsonify({"score": score})  # Send back computed score
+    except Exception as exc:
+        app.logger.exception("Error during analysis: %s", exc)
+        return jsonify({"error": "分析中にエラーが発生しました。"}), 500
 
 
 @app.route("/init_chatbot", methods=["POST"])
 async def init_chatbot_route():
     """Initialize the chatbot after videos are processed."""
-    await init_chatbot()  # Initialize chatbot separately
-    return jsonify({"status": "ok"})
+    try:
+        success = await init_chatbot()  # Initialize chatbot separately
+        if success:
+            return jsonify({"status": "ok", "message": "チャットボットが初期化されました。"})
+        else:
+            return jsonify({"status": "error", "message": "チャットボットの初期化に失敗しました。"}), 400
+    except Exception as exc:
+        app.logger.exception("Error initializing chatbot: %s", exc)
+        return jsonify({"status": "error", "message": "チャットボットの初期化中にエラーが発生しました。"}), 500
 
 
 @app.route("/set_videos", methods=["POST"])
@@ -304,17 +379,36 @@ def set_videos():
     if cur_file:
         CUR_VIDEO = Path("data") / cur_file  # Update current video path
 
+    # Clear all previous analysis data
     global score, bot, messages, ref_keypoints, cur_keypoints
     score = None  # Clear previous score
     bot = None
     messages.clear()
     ref_keypoints = None
     cur_keypoints = None
+    
+    # Remove previous output files
     for p in (OUT_REF, OUT_CUR, REF_KP_JSON, CUR_KP_JSON):
         if p.exists():
             p.unlink()  # Remove previous output files
+            
+    app.logger.info(f"Videos set to: ref={REF_VIDEO.name}, cur={CUR_VIDEO.name}")
     return jsonify({"status": "ok"})
 
 
+@app.route("/chatbot_status")
+def chatbot_status():
+    """Get current chatbot status."""
+    return jsonify({
+        "enabled": ENABLE_CHATBOT,
+        "initialized": bot is not None,
+        "ready_to_init": all(x is not None for x in [ref_keypoints, cur_keypoints, score])
+    })
+
+
 if __name__ == "__main__":
-    app.run(debug=False)
+    # Ensure required directories exist
+    Path("data").mkdir(exist_ok=True)
+    Path("static").mkdir(exist_ok=True)
+    
+    app.run(debug=True)
