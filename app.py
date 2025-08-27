@@ -52,6 +52,7 @@ if ENABLE_CHATBOT:
                 quantization_config=QWEN_QUANT_CONFIG,
                 trust_remote_code=True,
             )
+            print("LLM platform: ", next(model.parameters()).device)
 else:  # pragma: no cover - simple fallback
 
     def _ensure_chatbot_model() -> None:  # pragma: no cover - no-op when disabled
