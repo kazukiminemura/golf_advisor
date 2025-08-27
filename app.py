@@ -21,18 +21,30 @@ ENABLE_CHATBOT = os.environ.get("ENABLE_CHATBOT", "").lower() in {
     "true",
     "yes",
 }
+
+tokenizer = model = None  # Lazy-initialized chatbot model
+
 if ENABLE_CHATBOT:
     from transformers import AutoModelForCausalLM, AutoTokenizer, modeling_utils
+    import torch
 
     if getattr(modeling_utils, "ALL_PARALLEL_STYLES", None) is None:  # pragma: no cover - defensive
         modeling_utils.ALL_PARALLEL_STYLES = []
 
     QWEN_MODEL = "Qwen/Qwen3-8B"
-    tokenizer = AutoTokenizer.from_pretrained(QWEN_MODEL)
-    model = AutoModelForCausalLM.from_pretrained(QWEN_MODEL)
-else:  # pragma: no cover - simple fallback
-    tokenizer = model = None
 
+    def _ensure_chatbot_model() -> None:
+        """Load the LLM and tokenizer on demand to conserve memory."""
+        global tokenizer, model
+        if tokenizer is None or model is None:
+            tokenizer = AutoTokenizer.from_pretrained(QWEN_MODEL)
+            model = AutoModelForCausalLM.from_pretrained(QWEN_MODEL)
+else:  # pragma: no cover - simple fallback
+
+    def _ensure_chatbot_model() -> None:  # pragma: no cover - no-op when disabled
+        return
+
+MAX_MESSAGES = 20
 messages = []  # Store conversation history for the chatbot
 
 
@@ -42,6 +54,7 @@ def _generate_reply() -> str:
     if not ENABLE_CHATBOT:
         return "チャットボットは無効化されています。"
 
+    _ensure_chatbot_model()
     prompt = "あなたは役立つゴルフスイングコーチです。\n"
     for m in messages:
         role = "ユーザー" if m["role"] == "user" else "コーチ"
@@ -50,9 +63,10 @@ def _generate_reply() -> str:
 
     inputs = tokenizer(prompt, return_tensors="pt")
     try:
-        output_ids = model.generate(
-            **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
-        )
+        with torch.inference_mode():
+            output_ids = model.generate(
+                **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+            )
         gen_ids = output_ids[0, inputs["input_ids"].shape[1] :]
         reply = tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
         return reply or "返答を生成できませんでした。"
@@ -197,10 +211,12 @@ def prepare_videos() -> None:
     )
     global messages
     if ENABLE_CHATBOT:
+        _ensure_chatbot_model()
         inputs = tokenizer(prompt, return_tensors="pt")
-        output_ids = model.generate(
-            **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
-        )
+        with torch.inference_mode():
+            output_ids = model.generate(
+                **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+            )
         response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
         initial = response[len(prompt) :].strip()
         messages = [{"role": "assistant", "content": initial}]
@@ -234,8 +250,12 @@ def message_handler():
         data = request.get_json() or {}
         user_msg = data.get("message", "")
         messages.append({"role": "user", "content": user_msg})
+        if len(messages) > MAX_MESSAGES:
+            del messages[:-MAX_MESSAGES]
         reply = _generate_reply()
         messages.append({"role": "assistant", "content": reply})
+        if len(messages) > MAX_MESSAGES:
+            del messages[:-MAX_MESSAGES]
         return jsonify({"reply": reply})
     else:
         return jsonify(messages if ENABLE_CHATBOT else [])
