@@ -137,12 +137,19 @@ def prepare_videos() -> None:
 
 @app.route("/")
 def index():
-    prepare_videos()
+    has_results = (
+        score is not None
+        and OUT_REF.exists()
+        and OUT_CUR.exists()
+        and REF_KP_JSON.exists()
+        and CUR_KP_JSON.exists()
+    )
     return render_template(
         "index.html",
         score=score,
         ref_video_name=REF_VIDEO.name,
         cur_video_name=CUR_VIDEO.name,
+        has_results=has_results,
     )
 
 
@@ -190,9 +197,16 @@ def upload_videos():
     return jsonify(saved)
 
 
+@app.route("/analyze", methods=["POST"])
+def analyze():
+    """Run pose analysis and return the score."""
+    prepare_videos()
+    return jsonify({"score": score})
+
+
 @app.route("/set_videos", methods=["POST"])
 def set_videos():
-    """Select videos from local files and re-run analysis."""
+    """Select videos from local files and clear previous analysis."""
     data = request.get_json() or {}
     ref_file = data.get("reference_file")
     cur_file = data.get("current_file")
@@ -208,8 +222,7 @@ def set_videos():
     for p in (OUT_REF, OUT_CUR, REF_KP_JSON, CUR_KP_JSON):
         if p.exists():
             p.unlink()
-    prepare_videos()
-    return jsonify({"score": score})
+    return jsonify({"status": "ok"})
 
 
 if __name__ == "__main__":
