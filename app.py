@@ -272,8 +272,14 @@ def system_usage():
 async def analyze():
     """Run pose analysis and return the score."""
     await prepare_videos()  # Ensure videos are processed
-    await init_chatbot()  # Initialize chatbot separately
     return jsonify({"score": score})  # Send back computed score
+
+
+@app.route("/init_chatbot", methods=["POST"])
+async def init_chatbot_route():
+    """Initialize the chatbot after videos are processed."""
+    await init_chatbot()  # Initialize chatbot separately
+    return jsonify({"status": "ok"})
 
 
 @app.route("/set_videos", methods=["POST"])
