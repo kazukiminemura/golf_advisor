@@ -2,51 +2,45 @@ from flask import Flask, request, jsonify, render_template, send_from_directory
 from pathlib import Path
 import json
 from werkzeug.utils import secure_filename
-# from transformers import AutoModelForCausalLM, AutoTokenizer, modeling_utils
+from transformers import AutoModelForCausalLM, AutoTokenizer, modeling_utils
 
 from golf_swing_compare import (
     compare_swings,
     draw_skeleton,
     extract_keypoints,
-    # analyze_differences,
+    analyze_differences,
 )
 
 app = Flask(__name__)
-# Chatbot related setup is disabled below. The original code loaded a model
-# from the Transformers library and prepared message history for the chatbot.
-# All lines in this block are commented out to remove the chatbot feature.
-# if getattr(modeling_utils, "ALL_PARALLEL_STYLES", None) is None:  # pragma: no cover - defensive
-#     modeling_utils.ALL_PARALLEL_STYLES = []
 
-# QWEN_MODEL = "Qwen/Qwen3-8B"
-# tokenizer = AutoTokenizer.from_pretrained(QWEN_MODEL)
-# model = AutoModelForCausalLM.from_pretrained(QWEN_MODEL)
-# messages = []  # Store conversation history for the chatbot
-# The chatbot reply generator is no longer used and has been commented out.
-# def _generate_reply() -> str:
-#     """Return an LLM-generated reply for the chatbot.
-#
-#     This function constructed a prompt from the message history and used a
-#     language model to generate the next assistant reply. The result was
-#     returned as a plain string.
-#     """
-#
-#     prompt = "あなたは役立つゴルフスイングコーチです。\n"
-#     for m in messages:
-#         role = "ユーザー" if m["role"] == "user" else "コーチ"
-#         prompt += f"{role}: {m['content']}\n"
-#     prompt += "コーチ:"
-#
-#     inputs = tokenizer(prompt, return_tensors="pt")
-#     try:
-#         output_ids = model.generate(
-#             **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
-#         )
-#         gen_ids = output_ids[0, inputs["input_ids"].shape[1] :]
-#         reply = tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
-#         return reply or "返答を生成できませんでした。"
-#     except Exception:
-#         return "返答の生成中にエラーが発生しました。"
+if getattr(modeling_utils, "ALL_PARALLEL_STYLES", None) is None:  # pragma: no cover - defensive
+    modeling_utils.ALL_PARALLEL_STYLES = []
+
+QWEN_MODEL = "Qwen/Qwen3-8B"
+tokenizer = AutoTokenizer.from_pretrained(QWEN_MODEL)
+model = AutoModelForCausalLM.from_pretrained(QWEN_MODEL)
+messages = []  # Store conversation history for the chatbot
+
+
+def _generate_reply() -> str:
+    """Return an LLM-generated reply for the chatbot."""
+
+    prompt = "あなたは役立つゴルフスイングコーチです。\n"
+    for m in messages:
+        role = "ユーザー" if m["role"] == "user" else "コーチ"
+        prompt += f"{role}: {m['content']}\n"
+    prompt += "コーチ:"
+
+    inputs = tokenizer(prompt, return_tensors="pt")
+    try:
+        output_ids = model.generate(
+            **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+        )
+        gen_ids = output_ids[0, inputs["input_ids"].shape[1] :]
+        reply = tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+        return reply or "返答を生成できませんでした。"
+    except Exception:
+        return "返答の生成中にエラーが発生しました。"
 
 # Paths and model configuration for OpenPose processing
 MODEL_XML = "intel/human-pose-estimation-0001/FP16/human-pose-estimation-0001.xml"
@@ -124,27 +118,23 @@ def prepare_videos() -> None:
     _annotate_video(CUR_VIDEO, cur_kp, OUT_CUR)
     _save_keypoints_json(ref_kp, ref_fps, REF_KP_JSON)
     _save_keypoints_json(cur_kp, cur_fps, CUR_KP_JSON)
-
-    # The following section originally generated an initial chatbot message
-    # based on the analysis results. It has been commented out to disable the
-    # chatbot functionality.
-    # diffs = analyze_differences(ref_kp, cur_kp)
-    # significant = sorted(diffs.items(), key=lambda x: x[1], reverse=True)[:3]
-    # diff_text = ", ".join(f"{name} ({dist:.1f})" for name, dist in significant)
-    # prompt = (
-    #     "あなたは役立つゴルフスイングコーチです。\n"
-    #     f"スイングの全体的な差スコア: {score:.2f}。\n"
-    #     f"主な差分: {diff_text}。\n"
-    #     "まず何が良くて何が悪いのか簡潔に教えてください。\nコーチ:"
-    # )
-    # inputs = tokenizer(prompt, return_tensors="pt")
-    # output_ids = model.generate(
-    #     **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
-    # )
-    # response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    # initial = response[len(prompt) :].strip()
-    # global messages
-    # messages = [{"role": "assistant", "content": initial}]
+    diffs = analyze_differences(ref_kp, cur_kp)
+    significant = sorted(diffs.items(), key=lambda x: x[1], reverse=True)[:3]
+    diff_text = ", ".join(f"{name} ({dist:.1f})" for name, dist in significant)
+    prompt = (
+        "あなたは役立つゴルフスイングコーチです。\n"
+        f"スイングの全体的な差スコア: {score:.2f}。\n"
+        f"主な差分: {diff_text}。\n"
+        "まず何が良くて何が悪いのか簡潔に教えてください。\nコーチ:"
+    )
+    inputs = tokenizer(prompt, return_tensors="pt")
+    output_ids = model.generate(
+        **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+    )
+    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    initial = response[len(prompt) :].strip()
+    global messages
+    messages = [{"role": "assistant", "content": initial}]
 
 
 @app.route("/")
@@ -164,19 +154,17 @@ def index():
         has_results=has_results,
     )
 
-
-# Chatbot message handler has been commented out to disable the chatbot API.
-# @app.route("/messages", methods=["GET", "POST"])
-# def message_handler():
-#     if request.method == "POST":
-#         data = request.get_json() or {}
-#         user_msg = data.get("message", "")
-#         messages.append({"role": "user", "content": user_msg})
-#         reply = _generate_reply()
-#         messages.append({"role": "assistant", "content": reply})
-#         return jsonify({"reply": reply})
-#     else:
-#         return jsonify(messages)
+@app.route("/messages", methods=["GET", "POST"])
+def message_handler():
+    if request.method == "POST":
+        data = request.get_json() or {}
+        user_msg = data.get("message", "")
+        messages.append({"role": "user", "content": user_msg})
+        reply = _generate_reply()
+        messages.append({"role": "assistant", "content": reply})
+        return jsonify({"reply": reply})
+    else:
+        return jsonify(messages)
 
 
 @app.route("/videos/<path:filename>")
