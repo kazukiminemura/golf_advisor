@@ -131,9 +131,9 @@ class SwingChatBot:
         )
 
     def initial_message(self):
-        input_ids = self.tokenizer.encode(self.history, return_tensors="pt")
+        inputs = self.tokenizer(self.history, return_tensors="pt")
         output_ids = self.model.generate(
-            input_ids, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+            **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
         )
         response = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
         reply = response[len(self.history) :].strip()
@@ -142,9 +142,9 @@ class SwingChatBot:
 
     def ask(self, user):
         self.history += f"\nユーザー: {user}\nコーチ:"
-        input_ids = self.tokenizer.encode(self.history, return_tensors="pt")
+        inputs = self.tokenizer(self.history, return_tensors="pt")
         output_ids = self.model.generate(
-            input_ids, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+            **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
         )
         response = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
         reply = response[len(self.history) :].strip()
