@@ -28,19 +28,32 @@ messages = []
 
 
 def _generate_reply(_: str) -> str:
-    """Return an LLM-generated reply for the chatbot."""
+    """Return an LLM-generated reply for the chatbot.
+
+    `transformers` の `decode` では、入力プロンプトと同一の文字列が
+    先頭に再現されない場合があり、単純な文字列長によるスライスでは
+    生成部分を正しく切り出せないことがある。トークン数に基づいて
+    生成分を取得することで、常に有効な返答文字列を返す。
+    生成に失敗した場合はエラーメッセージを返す。
+    """
+
     prompt = "あなたは役立つゴルフスイングコーチです。\n"
     for m in messages:
         role = "ユーザー" if m["role"] == "user" else "コーチ"
         prompt += f"{role}: {m['content']}\n"
     prompt += "コーチ:"
+
     inputs = tokenizer(prompt, return_tensors="pt")
-    output_ids = model.generate(
-        **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
-    )
-    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    reply = response[len(prompt) :].strip()
-    return reply
+    try:
+        output_ids = model.generate(
+            **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+        )
+        # 生成トークンのみをデコードして返信を作成
+        gen_ids = output_ids[0, inputs["input_ids"].shape[1] :]
+        reply = tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+        return reply or "返答を生成できませんでした。"
+    except Exception:
+        return "返答の生成中にエラーが発生しました。"
 
 # Paths and model configuration for OpenPose processing
 MODEL_XML = "human-pose-estimation-0001.xml"
