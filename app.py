@@ -23,6 +23,13 @@ ENABLE_CHATBOT = os.environ.get("ENABLE_CHATBOT", "").lower() in {
     "yes",
 }
 
+# Option to initialize chatbot only when first used (to save memory during analysis)
+LAZY_CHATBOT_INIT = os.environ.get("LAZY_CHATBOT_INIT", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+
 bot = None
 MAX_MESSAGES = 20
 messages = []  # Store conversation history for the chatbot
@@ -192,36 +199,87 @@ def _prepare_videos_sync() -> None:
         app.logger.info("Videos already processed, skipping")
         return  # Skip processing if results already exist
 
-    import cv2
+    try:
+        import cv2
+        app.logger.info("Starting video analysis...")
+        app.logger.info(f"ENABLE_CHATBOT setting: {ENABLE_CHATBOT}")
+        app.logger.info(f"Reference video: {REF_VIDEO}, exists: {REF_VIDEO.exists()}")
+        app.logger.info(f"Current video: {CUR_VIDEO}, exists: {CUR_VIDEO.exists()}")
+        app.logger.info(f"Model path: {MODEL_XML}")
+        app.logger.info(f"Device: {DEVICE}")
+        
+        # Check video files exist
+        if not REF_VIDEO.exists():
+            raise FileNotFoundError(f"Reference video not found: {REF_VIDEO}")
+        if not CUR_VIDEO.exists():
+            raise FileNotFoundError(f"Current video not found: {CUR_VIDEO}")
+        
+        # Extract keypoints for reference and current videos
+        app.logger.info("Extracting keypoints from reference video...")
+        try:
+            ref_keypoints = extract_keypoints(REF_VIDEO, MODEL_XML, DEVICE)
+            app.logger.info(f"Reference keypoints extracted: {len(ref_keypoints)} frames")
+        except Exception as e:
+            app.logger.error(f"Failed to extract reference keypoints: {e}")
+            raise
+            
+        app.logger.info("Extracting keypoints from current video...")
+        try:
+            cur_keypoints = extract_keypoints(CUR_VIDEO, MODEL_XML, DEVICE)
+            app.logger.info(f"Current keypoints extracted: {len(cur_keypoints)} frames")
+        except Exception as e:
+            app.logger.error(f"Failed to extract current keypoints: {e}")
+            raise
 
-    app.logger.info("Starting video analysis...")
-    
-    # Extract keypoints for reference and current videos
-    app.logger.info("Extracting keypoints from reference video")
-    ref_keypoints = extract_keypoints(REF_VIDEO, MODEL_XML, DEVICE)
-    app.logger.info("Extracting keypoints from current video")
-    cur_keypoints = extract_keypoints(CUR_VIDEO, MODEL_XML, DEVICE)
+        # Retrieve frame rates for later JSON output
+        app.logger.info("Getting video frame rates...")
+        ref_cap = cv2.VideoCapture(str(REF_VIDEO))
+        ref_fps = ref_cap.get(cv2.CAP_PROP_FPS) or 30.0
+        ref_cap.release()
+        cur_cap = cv2.VideoCapture(str(CUR_VIDEO))
+        cur_fps = cur_cap.get(cv2.CAP_PROP_FPS) or 30.0
+        cur_cap.release()
+        app.logger.info(f"Frame rates - Reference: {ref_fps}, Current: {cur_fps}")
 
-    # Retrieve frame rates for later JSON output
-    ref_cap = cv2.VideoCapture(str(REF_VIDEO))
-    ref_fps = ref_cap.get(cv2.CAP_PROP_FPS) or 30.0
-    ref_cap.release()
-    cur_cap = cv2.VideoCapture(str(CUR_VIDEO))
-    cur_fps = cur_cap.get(cv2.CAP_PROP_FPS) or 30.0
-    cur_cap.release()
-
-    # Compute similarity score and produce annotated videos/JSON files
-    app.logger.info("Computing swing similarity score")
-    score = compare_swings(ref_keypoints, cur_keypoints)
-    app.logger.info(f"Computed score: {score}")
-    
-    app.logger.info("Creating annotated videos")
-    _annotate_video(REF_VIDEO, ref_keypoints, OUT_REF)
-    _annotate_video(CUR_VIDEO, cur_keypoints, OUT_CUR)
-    _save_keypoints_json(ref_keypoints, ref_fps, REF_KP_JSON)
-    _save_keypoints_json(cur_keypoints, cur_fps, CUR_KP_JSON)
-    
-    app.logger.info("Video analysis completed successfully")
+        # Compute similarity score and produce annotated videos/JSON files
+        app.logger.info("Computing swing similarity score...")
+        try:
+            score = compare_swings(ref_keypoints, cur_keypoints)
+            app.logger.info(f"Computed score: {score}")
+        except Exception as e:
+            app.logger.error(f"Failed to compute swing score: {e}")
+            raise
+        
+        app.logger.info("Creating annotated videos...")
+        try:
+            _annotate_video(REF_VIDEO, ref_keypoints, OUT_REF)
+            app.logger.info("Reference video annotated")
+            _annotate_video(CUR_VIDEO, cur_keypoints, OUT_CUR)
+            app.logger.info("Current video annotated")
+            _save_keypoints_json(ref_keypoints, ref_fps, REF_KP_JSON)
+            app.logger.info("Reference keypoints JSON saved")
+            _save_keypoints_json(cur_keypoints, cur_fps, CUR_KP_JSON)
+            app.logger.info("Current keypoints JSON saved")
+        except Exception as e:
+            app.logger.error(f"Failed to create annotated videos: {e}")
+            raise
+        
+        app.logger.info("Video analysis completed successfully")
+        
+    except Exception as e:
+        app.logger.exception(f"Critical error during video analysis: {e}")
+        # Clean up partial results
+        score = None
+        ref_keypoints = None
+        cur_keypoints = None
+        for p in (OUT_REF, OUT_CUR, REF_KP_JSON, CUR_KP_JSON):
+            if p.exists():
+                try:
+                    p.unlink()
+                    app.logger.info(f"Cleaned up partial result: {p}")
+                except Exception:
+                    pass
+        raise
 
 
 async def prepare_videos() -> None:
@@ -329,27 +387,68 @@ def system_usage():
     cpu = psutil.cpu_percent()
     gpu = get_gpu_usage()
     npu = get_npu_usage()
-    return jsonify({"cpu": cpu, "gpu": gpu, "npu": npu})
+    
+    # Add memory usage information
+    memory = psutil.virtual_memory()
+    memory_percent = memory.percent
+    memory_available_gb = memory.available / (1024**3)
+    memory_used_gb = memory.used / (1024**3)
+    memory_total_gb = memory.total / (1024**3)
+    
+    return jsonify({
+        "cpu": cpu, 
+        "gpu": gpu, 
+        "npu": npu,
+        "memory_percent": memory_percent,
+        "memory_available_gb": round(memory_available_gb, 2),
+        "memory_used_gb": round(memory_used_gb, 2),
+        "memory_total_gb": round(memory_total_gb, 2)
+    })
 
 
 @app.route("/analyze", methods=["POST"])
 async def analyze():
     """Run pose analysis and return the score."""
     try:
+        app.logger.info(f"Starting analysis with ENABLE_CHATBOT={ENABLE_CHATBOT}")
+        
+        # Clear any existing chatbot to free memory
+        global bot, messages
+        if bot is not None:
+            app.logger.info("Clearing existing chatbot to free memory")
+            bot = None
+            messages.clear()
+            
         await prepare_videos()  # Ensure videos are processed
         
         # After video processing, try to initialize chatbot automatically
-        if ENABLE_CHATBOT:
-            success = await init_chatbot()
-            if success:
-                app.logger.info("Chatbot automatically initialized after analysis")
-            else:
-                app.logger.warning("Failed to automatically initialize chatbot after analysis")
+        # Only if chatbot is enabled and video processing succeeded
+        if ENABLE_CHATBOT and score is not None and not LAZY_CHATBOT_INIT:
+            app.logger.info("Attempting to initialize chatbot after successful analysis")
+            try:
+                success = await init_chatbot()
+                if success:
+                    app.logger.info("Chatbot automatically initialized after analysis")
+                else:
+                    app.logger.warning("Failed to automatically initialize chatbot after analysis")
+            except Exception as chatbot_exc:
+                app.logger.error(f"Chatbot initialization failed: {chatbot_exc}")
+                # Don't fail the whole analysis if chatbot init fails
         
+        if score is None:
+            return jsonify({"error": "動画分析に失敗しました。ログを確認してください。"}), 500
+            
         return jsonify({"score": score})  # Send back computed score
+        
     except Exception as exc:
         app.logger.exception("Error during analysis: %s", exc)
-        return jsonify({"error": "分析中にエラーが発生しました。"}), 500
+        error_msg = str(exc)
+        if "FileNotFoundError" in error_msg:
+            return jsonify({"error": f"動画ファイルが見つかりません: {error_msg}"}), 400
+        elif "extract_keypoints" in error_msg:
+            return jsonify({"error": "キーポイント抽出に失敗しました。モデルファイルを確認してください。"}), 500
+        else:
+            return jsonify({"error": f"分析中にエラーが発生しました: {error_msg}"}), 500
 
 
 @app.route("/init_chatbot", methods=["POST"])
