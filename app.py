@@ -1,12 +1,12 @@
-from flask import Flask, request, jsonify, render_template, send_from_directory
-from pathlib import Path
-import json
 import os
-import platform
-import subprocess
-from werkzeug.utils import secure_filename
+import json
 import psutil
 import asyncio
+import platform
+import subprocess
+from pathlib import Path
+from werkzeug.utils import secure_filename
+from flask import Flask, request, jsonify, render_template, send_from_directory
 
 from golf_swing_compare import (
     compare_swings,
@@ -214,8 +214,10 @@ def message_handler():
     if request.method == "POST":
         data = request.get_json() or {}
         user_msg = data.get("message", "")
-        if not ENABLE_CHATBOT or bot is None:
+        if not ENABLE_CHATBOT:
             return jsonify({"reply": "チャットボットは無効化されています。"})
+        if bot is None:
+            return jsonify({"reply": "チャットボットは準備中です。"})
         messages.append({"role": "user", "content": user_msg})
         if len(messages) > MAX_MESSAGES:
             del messages[:-MAX_MESSAGES]
