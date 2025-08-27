@@ -277,10 +277,10 @@
     }
 
     // 初期表示
+    loadVideoList();
     if (CHATBOT_ENABLED) {
       initChat();
     }
-    loadVideoList();
     async function updateUsage() {
       try {
         const res = await fetch('/system_usage');
