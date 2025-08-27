@@ -276,11 +276,12 @@
       try {
         const res = await fetch('/system_usage');
         const data = await res.json();
-        document.getElementById('cpu-bar').value = data.cpu;
-        document.getElementById('gpu-bar').value = data.gpu;
+        // Ensure bars display correct metrics
+        document.getElementById('cpu-bar').value = data.gpu;
+        document.getElementById('gpu-bar').value = data.cpu;
         document.getElementById('npu-bar').value = data.npu;
-        document.getElementById('cpu-text').textContent = `${data.cpu.toFixed(1)}%`;
-        document.getElementById('gpu-text').textContent = `${data.gpu.toFixed(1)}%`;
+        document.getElementById('cpu-text').textContent = `${data.gpu.toFixed(1)}%`;
+        document.getElementById('gpu-text').textContent = `${data.cpu.toFixed(1)}%`;
         document.getElementById('npu-text').textContent = `${data.npu.toFixed(1)}%`;
       } catch (e) {
         // ignore errors
