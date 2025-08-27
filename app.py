@@ -211,11 +211,18 @@ def index():
 
 @app.route("/messages", methods=["GET", "POST"])
 def message_handler():
+    if not ENABLE_CHATBOT:
+        if request.method == "POST":
+            return jsonify({"reply": "チャットボットは無効化されています。"})
+        return jsonify([])
+
+    # Ensure the chatbot is initialized when keypoints are available
+    if bot is None:
+        _init_chatbot_sync()
+
     if request.method == "POST":
         data = request.get_json() or {}
         user_msg = data.get("message", "")
-        if not ENABLE_CHATBOT:
-            return jsonify({"reply": "チャットボットは無効化されています。"})
         if bot is None:
             return jsonify({"reply": "チャットボットは準備中です。"})
         messages.append({"role": "user", "content": user_msg})
@@ -227,7 +234,7 @@ def message_handler():
             del messages[:-MAX_MESSAGES]
         return jsonify({"reply": reply})
     else:
-        return jsonify(messages if ENABLE_CHATBOT and bot is not None else [])
+        return jsonify(messages if bot is not None else [])
 
 
 @app.route("/videos/<path:filename>")
