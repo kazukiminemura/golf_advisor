@@ -156,8 +156,13 @@ def prepare_videos() -> None:
     _save_keypoints_json(cur_kp, cur_fps, CUR_KP_JSON)
     global bot, messages
     if ENABLE_CHATBOT:
-        bot = SwingChatBot(ref_kp, cur_kp, score)
-        messages = [{"role": "assistant", "content": bot.initial_message()}]
+        try:
+            bot = SwingChatBot(ref_kp, cur_kp, score)
+            messages = [{"role": "assistant", "content": bot.initial_message()}]
+        except Exception as exc:  # noqa: BLE001
+            app.logger.exception("Failed to initialize chatbot: %s", exc)
+            bot = None
+            messages.clear()
     else:
         bot = None
         messages.clear()
