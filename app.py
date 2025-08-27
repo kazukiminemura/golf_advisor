@@ -1,8 +1,8 @@
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from pathlib import Path
 import json
+import os
 from werkzeug.utils import secure_filename
-from transformers import AutoModelForCausalLM, AutoTokenizer, modeling_utils
 import psutil
 
 from golf_swing_compare import (
@@ -14,17 +14,31 @@ from golf_swing_compare import (
 
 app = Flask(__name__)
 
-if getattr(modeling_utils, "ALL_PARALLEL_STYLES", None) is None:  # pragma: no cover - defensive
-    modeling_utils.ALL_PARALLEL_STYLES = []
+ENABLE_CHATBOT = os.environ.get("ENABLE_CHATBOT", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+if ENABLE_CHATBOT:
+    from transformers import AutoModelForCausalLM, AutoTokenizer, modeling_utils
 
-QWEN_MODEL = "Qwen/Qwen3-8B"
-tokenizer = AutoTokenizer.from_pretrained(QWEN_MODEL)
-model = AutoModelForCausalLM.from_pretrained(QWEN_MODEL)
+    if getattr(modeling_utils, "ALL_PARALLEL_STYLES", None) is None:  # pragma: no cover - defensive
+        modeling_utils.ALL_PARALLEL_STYLES = []
+
+    QWEN_MODEL = "Qwen/Qwen3-8B"
+    tokenizer = AutoTokenizer.from_pretrained(QWEN_MODEL)
+    model = AutoModelForCausalLM.from_pretrained(QWEN_MODEL)
+else:  # pragma: no cover - simple fallback
+    tokenizer = model = None
+
 messages = []  # Store conversation history for the chatbot
 
 
 def _generate_reply() -> str:
     """Return an LLM-generated reply for the chatbot."""
+
+    if not ENABLE_CHATBOT:
+        return "チャットボットは無効化されています。"
 
     prompt = "あなたは役立つゴルフスイングコーチです。\n"
     for m in messages:
@@ -148,14 +162,17 @@ def prepare_videos() -> None:
         f"主な差分: {diff_text}。\n"
         "まず何が良くて何が悪いのか簡潔に教えてください。\nコーチ:"
     )
-    inputs = tokenizer(prompt, return_tensors="pt")
-    output_ids = model.generate(
-        **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
-    )
-    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    initial = response[len(prompt) :].strip()
     global messages
-    messages = [{"role": "assistant", "content": initial}]
+    if ENABLE_CHATBOT:
+        inputs = tokenizer(prompt, return_tensors="pt")
+        output_ids = model.generate(
+            **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+        )
+        response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        initial = response[len(prompt) :].strip()
+        messages = [{"role": "assistant", "content": initial}]
+    else:
+        messages.clear()
 
 
 @app.route("/")
@@ -173,11 +190,14 @@ def index():
         ref_video_name=REF_VIDEO.name,
         cur_video_name=CUR_VIDEO.name,
         has_results=has_results,
+        chatbot_enabled=ENABLE_CHATBOT,
     )
 
 @app.route("/messages", methods=["GET", "POST"])
 def message_handler():
     if request.method == "POST":
+        if not ENABLE_CHATBOT:
+            return jsonify({"reply": _generate_reply()})
         data = request.get_json() or {}
         user_msg = data.get("message", "")
         messages.append({"role": "user", "content": user_msg})
@@ -185,7 +205,7 @@ def message_handler():
         messages.append({"role": "assistant", "content": reply})
         return jsonify({"reply": reply})
     else:
-        return jsonify(messages)
+        return jsonify(messages if ENABLE_CHATBOT else [])
 
 
 @app.route("/videos/<path:filename>")
