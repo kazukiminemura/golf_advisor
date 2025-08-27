@@ -2,12 +2,19 @@ from flask import Flask, request, jsonify, render_template, send_from_directory
 from pathlib import Path
 import json
 from werkzeug.utils import secure_filename
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, modeling_utils
 
 from golf_swing_compare import compare_swings, draw_skeleton, extract_keypoints
 
 app = Flask(__name__)
 # Qwen 8B モデルを使用してチャットボットを構築
+# 一部の環境では `accelerate` がインストールされていないため
+# `transformers` 内部の `ALL_PARALLEL_STYLES` が `None` になり
+# モデルロード時に `TypeError` が発生することがある。
+# `accelerate` がない環境でも動作するよう空のリストを設定しておく。
+if getattr(modeling_utils, "ALL_PARALLEL_STYLES", None) is None:  # pragma: no cover - defensive
+    modeling_utils.ALL_PARALLEL_STYLES = []
+
 QWEN_MODEL = "Qwen/Qwen1.5-8B"
 tokenizer = AutoTokenizer.from_pretrained(QWEN_MODEL)
 model = AutoModelForCausalLM.from_pretrained(QWEN_MODEL)
