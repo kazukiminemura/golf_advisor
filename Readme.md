@@ -25,7 +25,8 @@ pip install openvino opencv-python openvino-dev numpy transformers torch Pillow 
 python golf_swing_compare.py --reference REF.mp4 --test TEST.mp4 --model human-pose-estimation-0001.xml
 ```
 
-Use `--chat` to display a chat panel alongside the video comparison. The chatbot speaks Japanese and offers basic advice:
+Use `--chat` to display a chat panel alongside the video comparison. The chatbot
+uses the Qwen/Qwen3-8B model, speaks Japanese and offers basic advice:
 
 ```bash
 python golf_swing_compare.py --reference REF.mp4 --test TEST.mp4 --model human-pose-estimation-0001.xml --chat

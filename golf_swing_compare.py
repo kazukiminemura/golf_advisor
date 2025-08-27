@@ -118,7 +118,7 @@ class SwingChatBot:
         significant = sorted(diffs.items(), key=lambda x: x[1], reverse=True)[:3]
         diff_text = ", ".join(f"{name} ({dist:.1f})" for name, dist in significant)
 
-        model_name = "ELYZA/Llama-3-ELYZA-JP-8B"
+        model_name = "Qwen/Qwen3-8B"
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)  # Load tokenizer
         self.model = AutoModelForCausalLM.from_pretrained(model_name)  # Load model
 
