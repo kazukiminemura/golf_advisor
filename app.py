@@ -6,6 +6,7 @@ import platform
 import subprocess
 from werkzeug.utils import secure_filename
 import psutil
+import asyncio
 
 from golf_swing_compare import (
     compare_swings,
@@ -126,7 +127,7 @@ def _save_keypoints_json(keypoints, fps, dst: Path) -> None:
         json.dump({"fps": fps, "keypoints": serializable}, f)
 
 
-def init_chatbot() -> None:
+def _init_chatbot_sync() -> None:
     """Initialize chatbot using cached keypoints if enabled."""
     global bot, messages, ref_keypoints, cur_keypoints, score
     if not ENABLE_CHATBOT:
@@ -146,7 +147,12 @@ def init_chatbot() -> None:
         messages.clear()
 
 
-def prepare_videos() -> None:
+async def init_chatbot() -> None:
+    """Asynchronously initialize the chatbot."""
+    await asyncio.to_thread(_init_chatbot_sync)
+
+
+def _prepare_videos_sync() -> None:
     """Generate annotated videos, keypoint JSONs and compute the swing score."""
     global score, ref_keypoints, cur_keypoints
     if (
@@ -178,6 +184,11 @@ def prepare_videos() -> None:
     _annotate_video(CUR_VIDEO, cur_keypoints, OUT_CUR)
     _save_keypoints_json(ref_keypoints, ref_fps, REF_KP_JSON)
     _save_keypoints_json(cur_keypoints, cur_fps, CUR_KP_JSON)
+
+
+async def prepare_videos() -> None:
+    """Asynchronously generate annotated videos and compute the swing score."""
+    await asyncio.to_thread(_prepare_videos_sync)
 
 
 @app.route("/")
@@ -258,10 +269,10 @@ def system_usage():
 
 
 @app.route("/analyze", methods=["POST"])
-def analyze():
+async def analyze():
     """Run pose analysis and return the score."""
-    prepare_videos()  # Ensure videos are processed
-    init_chatbot()  # Initialize chatbot separately
+    await prepare_videos()  # Ensure videos are processed
+    await init_chatbot()  # Initialize chatbot separately
     return jsonify({"score": score})  # Send back computed score
 
 
