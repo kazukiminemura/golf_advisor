@@ -49,7 +49,7 @@ app = Flask(__name__)
 #         return "返答の生成中にエラーが発生しました。"
 
 # Paths and model configuration for OpenPose processing
-MODEL_XML = "human-pose-estimation-0001.xml"
+MODEL_XML = "intel/FP16/human-pose-estimation-0001.xml"
 DEVICE = "CPU"
 REF_VIDEO = Path("data/reference.mp4")
 CUR_VIDEO = Path("data/current.mp4")
