@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 from werkzeug.utils import secure_filename
 from transformers import AutoModelForCausalLM, AutoTokenizer, modeling_utils
+import psutil
 
 from golf_swing_compare import (
     compare_swings,
@@ -53,6 +54,26 @@ REF_KP_JSON = Path("static/reference_keypoints.json")
 CUR_KP_JSON = Path("static/current_keypoints.json")
 
 score = None
+
+
+def get_gpu_usage() -> float:
+    """Return GPU utilization percentage if available."""
+    try:
+        import pynvml
+
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+        gpu_util = float(util.gpu)
+        pynvml.nvmlShutdown()
+        return gpu_util
+    except Exception:
+        return 0.0
+
+
+def get_npu_usage() -> float:
+    """Placeholder for NPU utilization."""
+    return 0.0
 
 
 def _annotate_video(src: Path, keypoints, dst: Path) -> None:
@@ -196,6 +217,15 @@ def upload_videos():
         cur.save(data_dir / name)  # Save uploaded file
         saved["current_file"] = name
     return jsonify(saved)
+
+
+@app.route("/system_usage")
+def system_usage():
+    """Return current CPU, GPU and NPU utilization percentages."""
+    cpu = psutil.cpu_percent()
+    gpu = get_gpu_usage()
+    npu = get_npu_usage()
+    return jsonify({"cpu": cpu, "gpu": gpu, "npu": npu})
 
 
 @app.route("/analyze", methods=["POST"])
