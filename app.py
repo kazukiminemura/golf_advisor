@@ -7,7 +7,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from golf_swing_compare import compare_swings, draw_skeleton, extract_keypoints
 
 app = Flask(__name__)
-LLAMA_MODEL = "meta-llama/Llama-2-16b-chat-hf"
+LLAMA_MODEL = "ELYZA/Llama-3-ELYZA-JP-8B"
 tokenizer = AutoTokenizer.from_pretrained(LLAMA_MODEL)
 model = AutoModelForCausalLM.from_pretrained(LLAMA_MODEL)
 # 簡易的なチャットボット用メッセージ履歴をメモリに保持
