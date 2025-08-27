@@ -15,7 +15,7 @@ app = Flask(__name__)
 if getattr(modeling_utils, "ALL_PARALLEL_STYLES", None) is None:  # pragma: no cover - defensive
     modeling_utils.ALL_PARALLEL_STYLES = []
 
-QWEN_MODEL = "Qwen/Qwen1.5-8B"
+QWEN_MODEL = "Qwen/Qwen3-8B"
 tokenizer = AutoTokenizer.from_pretrained(QWEN_MODEL)
 model = AutoModelForCausalLM.from_pretrained(QWEN_MODEL)
 # 簡易的なチャットボット用メッセージ履歴をメモリに保持
