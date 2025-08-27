@@ -343,7 +343,11 @@ def main():
     parser = argparse.ArgumentParser(description="Compare golf swings using OpenVINO OpenPose")
     parser.add_argument("--reference", required=True, help="Reference swing video path")
     parser.add_argument("--test", required=True, help="Test swing video path")
-    parser.add_argument("--model", required=True, help="Path to OpenVINO pose model (.xml)")
+    parser.add_argument(
+        "--model",
+        default="intel/human-pose-estimation-0001/INT8/human-pose-estimation-0001.xml",
+        help="Path to OpenVINO pose model (.xml)",
+    )
     parser.add_argument("--device", default="CPU", help="Device name for inference")
     parser.add_argument(
         "--step",
