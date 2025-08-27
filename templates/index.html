@@ -55,6 +55,7 @@
     {% endif %}
   </div>
 
+  {% if chatbot_enabled %}
   <!-- チャット -->
   <div class="chat-container">
     <div id="chat-messages"></div>
@@ -63,57 +64,61 @@
       <button id="send-btn">送信</button>
     </div>
   </div>
+  {% endif %}
 
   <script>
     const HAS_RESULTS = {{ 'true' if has_results else 'false' }};
+    const CHATBOT_ENABLED = {{ 'true' if chatbot_enabled else 'false' }};
 
-    async function loadMessages() {
-      const res = await fetch('/messages');
-      const msgs = await res.json();
-      const box = document.getElementById('chat-messages');
-      box.innerHTML = '';
-      msgs.forEach(m => {
-        const p = document.createElement('p');
-        const prefix = m.role === 'user' ? 'あなた: ' : 'コーチ: ';
-        p.textContent = prefix + m.content;
-        box.appendChild(p);
-      });
-      box.scrollTop = box.scrollHeight;
-    }
-
-    document.getElementById('send-btn').onclick = async () => {
-      const input = document.getElementById('chat-input');
-      const text = input.value.trim();
-      if (!text) return;
-      const box = document.getElementById('chat-messages');
-
-      // 送信したメッセージを即座に表示
-      const userP = document.createElement('p');
-      userP.textContent = 'あなた: ' + text;
-      box.appendChild(userP);
-      box.scrollTop = box.scrollHeight;
-
-      input.value = '';
-
-      try {
-        const res = await fetch('/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text })
+    if (CHATBOT_ENABLED) {
+      async function loadMessages() {
+        const res = await fetch('/messages');
+        const msgs = await res.json();
+        const box = document.getElementById('chat-messages');
+        box.innerHTML = '';
+        msgs.forEach(m => {
+          const p = document.createElement('p');
+          const prefix = m.role === 'user' ? 'あなた: ' : 'コーチ: ';
+          p.textContent = prefix + m.content;
+          box.appendChild(p);
         });
-        const data = await res.json();
-
-        const coachP = document.createElement('p');
-        coachP.textContent = 'コーチ: ' + data.reply;
-        box.appendChild(coachP);
-        box.scrollTop = box.scrollHeight;
-      } catch (e) {
-        const errP = document.createElement('p');
-        errP.textContent = 'コーチ: 返答の取得に失敗しました。';
-        box.appendChild(errP);
         box.scrollTop = box.scrollHeight;
       }
-    };
+
+      document.getElementById('send-btn').onclick = async () => {
+        const input = document.getElementById('chat-input');
+        const text = input.value.trim();
+        if (!text) return;
+        const box = document.getElementById('chat-messages');
+
+        // 送信したメッセージを即座に表示
+        const userP = document.createElement('p');
+        userP.textContent = 'あなた: ' + text;
+        box.appendChild(userP);
+        box.scrollTop = box.scrollHeight;
+
+        input.value = '';
+
+        try {
+          const res = await fetch('/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text })
+          });
+          const data = await res.json();
+
+          const coachP = document.createElement('p');
+          coachP.textContent = 'コーチ: ' + data.reply;
+          box.appendChild(coachP);
+          box.scrollTop = box.scrollHeight;
+        } catch (e) {
+          const errP = document.createElement('p');
+          errP.textContent = 'コーチ: 返答の取得に失敗しました。';
+          box.appendChild(errP);
+          box.scrollTop = box.scrollHeight;
+        }
+      };
+    }
 
     document.getElementById('process-btn').onclick = async () => {
       const refSel = document.getElementById('ref-file').value;
@@ -257,7 +262,9 @@
     }
 
     // 初期表示
-    loadMessages();
+    if (CHATBOT_ENABLED) {
+      loadMessages();
+    }
     loadVideoList();
     async function updateUsage() {
       try {
