@@ -11,7 +11,7 @@ from golf_swing_compare import (
     compare_swings,
     draw_skeleton,
     extract_keypoints,
-    analyze_differences,
+    SwingChatBot,
 )
 
 app = Flask(__name__)
@@ -22,92 +22,9 @@ ENABLE_CHATBOT = os.environ.get("ENABLE_CHATBOT", "").lower() in {
     "yes",
 }
 
-tokenizer = model = None  # Lazy-initialized chatbot model
-
-if ENABLE_CHATBOT:
-    from transformers import (
-        AutoModelForCausalLM,
-        AutoTokenizer,
-        BitsAndBytesConfig,
-        modeling_utils,
-    )
-    import torch
-
-    if getattr(modeling_utils, "ALL_PARALLEL_STYLES", None) is None:  # pragma: no cover - defensive
-        modeling_utils.ALL_PARALLEL_STYLES = []
-
-    QWEN_MODEL = "Qwen/Qwen3-8B"
-    QWEN_QUANT_CONFIG = BitsAndBytesConfig(
-        load_in_8bit=True,
-        llm_int8_enable_fp32_cpu_offload=True,
-    )
-
-    def _ensure_chatbot_model() -> None:
-        """Load the LLM and tokenizer on demand to conserve memory."""
-        global tokenizer, model
-        if tokenizer is None or model is None:
-            tokenizer = AutoTokenizer.from_pretrained(
-                QWEN_MODEL, trust_remote_code=True
-            )
-            device_map = {"": "cuda:0"} if torch.cuda.is_available() else {"": "cpu"}
-            model = AutoModelForCausalLM.from_pretrained(
-                QWEN_MODEL,
-                device_map=device_map,
-                quantization_config=QWEN_QUANT_CONFIG,
-                trust_remote_code=True,
-            )
-            print("LLM platform: ", next(model.parameters()).device)
-else:  # pragma: no cover - simple fallback
-
-    def _ensure_chatbot_model() -> None:  # pragma: no cover - no-op when disabled
-        return
-
+bot = None
 MAX_MESSAGES = 20
 messages = []  # Store conversation history for the chatbot
-# Optional debug mode that returns a simple echo instead of invoking the
-# heavy language model.  Enable with ``CHATBOT_DEBUG=1`` when running the
-# server.
-CHATBOT_DEBUG = os.environ.get("CHATBOT_DEBUG", "").lower() in {
-    "1",
-    "true",
-    "yes",
-}
-
-
-def _generate_reply() -> str:
-    """Return an LLM-generated reply for the chatbot."""
-
-    if not ENABLE_CHATBOT:
-        return "チャットボットは無効化されています。"
-
-    if CHATBOT_DEBUG:  # Simple echo reply for debugging conversation flow
-        last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-        return f"(デバッグ) {last_user}"
-
-    _ensure_chatbot_model()
-    prompt = "あなたは役立つゴルフスイングコーチです。\n"
-    for m in messages:
-        role = "ユーザー" if m["role"] == "user" else "コーチ"
-        prompt += f"{role}: {m['content']}\n"
-    prompt += "コーチ:"
-
-    inputs = tokenizer(prompt, return_tensors="pt")
-    try:
-        with torch.inference_mode():
-            output_ids = model.generate(
-                **inputs,
-                max_new_tokens=200,
-                temperature=0.7,
-                do_sample=True,
-                top_p=0.95,
-                top_k=50,
-            )
-        gen_ids = output_ids[0, inputs["input_ids"].shape[1] :]
-        reply = tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
-        return reply or "返答を生成できませんでした。"
-    except Exception as exc:  # pragma: no cover - best effort logging
-        app.logger.exception("Chatbot reply generation failed: %s", exc)
-        return "返答の生成中にエラーが発生しました。"
 
 # Paths and model configuration for OpenPose processing
 # Use the INT8 variant of the model for faster inference by default.
@@ -237,32 +154,12 @@ def prepare_videos() -> None:
     _annotate_video(CUR_VIDEO, cur_kp, OUT_CUR)
     _save_keypoints_json(ref_kp, ref_fps, REF_KP_JSON)
     _save_keypoints_json(cur_kp, cur_fps, CUR_KP_JSON)
-    diffs = analyze_differences(ref_kp, cur_kp)
-    significant = sorted(diffs.items(), key=lambda x: x[1], reverse=True)[:3]
-    diff_text = ", ".join(f"{name} ({dist:.1f})" for name, dist in significant)
-    prompt = (
-        "あなたは役立つゴルフスイングコーチです。\n"
-        f"スイングの全体的な差スコア: {score:.2f}。\n"
-        f"主な差分: {diff_text}。\n"
-        "まず何が良くて何が悪いのか簡潔に教えてください。\nコーチ:"
-    )
-    global messages
+    global bot, messages
     if ENABLE_CHATBOT:
-        _ensure_chatbot_model()
-        inputs = tokenizer(prompt, return_tensors="pt")
-        with torch.inference_mode():
-            output_ids = model.generate(
-                **inputs,
-                max_new_tokens=200,
-                temperature=0.7,
-                do_sample=True,
-                top_p=0.95,
-                top_k=50,
-            )
-        response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-        initial = response[len(prompt) :].strip()
-        messages = [{"role": "assistant", "content": initial}]
+        bot = SwingChatBot(ref_kp, cur_kp, score)
+        messages = [{"role": "assistant", "content": bot.initial_message()}]
     else:
+        bot = None
         messages.clear()
 
 
@@ -287,20 +184,20 @@ def index():
 @app.route("/messages", methods=["GET", "POST"])
 def message_handler():
     if request.method == "POST":
-        if not ENABLE_CHATBOT:
-            return jsonify({"reply": _generate_reply()})
         data = request.get_json() or {}
         user_msg = data.get("message", "")
+        if not ENABLE_CHATBOT or bot is None:
+            return jsonify({"reply": "チャットボットは無効化されています。"})
         messages.append({"role": "user", "content": user_msg})
         if len(messages) > MAX_MESSAGES:
             del messages[:-MAX_MESSAGES]
-        reply = _generate_reply()
+        reply = bot.ask(user_msg)
         messages.append({"role": "assistant", "content": reply})
         if len(messages) > MAX_MESSAGES:
             del messages[:-MAX_MESSAGES]
         return jsonify({"reply": reply})
     else:
-        return jsonify(messages if ENABLE_CHATBOT else [])
+        return jsonify(messages if ENABLE_CHATBOT and bot is not None else [])
 
 
 @app.route("/videos/<path:filename>")
