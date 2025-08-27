@@ -30,8 +30,7 @@
       <label for="cur-upload">対象</label>
       <input id="cur-upload" type="file" accept="video/mp4" />
       <select id="cur-file"></select>
-      <button id="load-btn">更新</button>
-      <button id="analyze-btn">解析</button>
+      <button id="process-btn">更新＆解析</button>
     </div>
     <div id="status"></div>
     {% if has_results %}
@@ -115,7 +114,7 @@
       }
     };
 
-    document.getElementById('load-btn').onclick = async () => {
+    document.getElementById('process-btn').onclick = async () => {
       const refSel = document.getElementById('ref-file').value;
       const curSel = document.getElementById('cur-file').value;
       const refUp = document.getElementById('ref-upload').files[0];
@@ -139,10 +138,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reference_file: refFile, current_file: curFile })
       });
-      location.reload();
-    };
 
-    document.getElementById('analyze-btn').onclick = async () => {
       const status = document.getElementById('status');
       status.textContent = '解析中...';
       try {
