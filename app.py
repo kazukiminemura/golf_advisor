@@ -43,11 +43,14 @@ if ENABLE_CHATBOT:
         """Load the LLM and tokenizer on demand to conserve memory."""
         global tokenizer, model
         if tokenizer is None or model is None:
-            tokenizer = AutoTokenizer.from_pretrained(QWEN_MODEL)
+            tokenizer = AutoTokenizer.from_pretrained(
+                QWEN_MODEL, trust_remote_code=True
+            )
             model = AutoModelForCausalLM.from_pretrained(
                 QWEN_MODEL,
                 device_map="auto",
                 quantization_config=QWEN_QUANT_CONFIG,
+                trust_remote_code=True,
             )
 else:  # pragma: no cover - simple fallback
 
@@ -87,7 +90,12 @@ def _generate_reply() -> str:
     try:
         with torch.inference_mode():
             output_ids = model.generate(
-                **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+                **inputs,
+                max_new_tokens=200,
+                temperature=0.7,
+                do_sample=True,
+                top_p=0.95,
+                top_k=50,
             )
         gen_ids = output_ids[0, inputs["input_ids"].shape[1] :]
         reply = tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
@@ -239,7 +247,12 @@ def prepare_videos() -> None:
         inputs = tokenizer(prompt, return_tensors="pt")
         with torch.inference_mode():
             output_ids = model.generate(
-                **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+                **inputs,
+                max_new_tokens=200,
+                temperature=0.7,
+                do_sample=True,
+                top_p=0.95,
+                top_k=50,
             )
         response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
         initial = response[len(prompt) :].strip()
