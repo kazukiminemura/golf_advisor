@@ -33,6 +33,7 @@
       <button id="process-btn">更新＆解析</button>
     </div>
     <div id="status"></div>
+    <div id="usage"></div>
     {% if has_results %}
     <p>差分スコア: {{ "%.4f"|format(score) }}</p>
     <div class="video-wrapper">
@@ -140,11 +141,19 @@
       });
 
       const status = document.getElementById('status');
-      status.textContent = '解析中...';
+      status.textContent = '解析中';
+      let dots = 0;
+      const timer = setInterval(() => {
+        dots = (dots + 1) % 4;
+        status.textContent = '解析中' + '.'.repeat(dots);
+      }, 500);
       try {
         await fetch('/analyze', { method: 'POST' });
+        clearInterval(timer);
+        status.textContent = '解析完了';
         location.reload();
       } catch (e) {
+        clearInterval(timer);
         status.textContent = '解析に失敗しました。';
       }
     };
@@ -250,6 +259,18 @@
     // 初期表示
     loadMessages();
     loadVideoList();
+    async function updateUsage() {
+      try {
+        const res = await fetch('/system_usage');
+        const data = await res.json();
+        const usage = document.getElementById('usage');
+        usage.textContent = `CPU: ${data.cpu.toFixed(1)}%, GPU: ${data.gpu.toFixed(1)}%, NPU: ${data.npu.toFixed(1)}%`;
+      } catch (e) {
+        // ignore errors
+      }
+    }
+    setInterval(updateUsage, 1000);
+    updateUsage();
   </script>
 </body>
 </html>
