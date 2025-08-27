@@ -77,7 +77,7 @@
     const CHATBOT_ENABLED = {{ 'true' if chatbot_enabled else 'false' }};
 
     if (CHATBOT_ENABLED) {
-      async function loadMessages() {
+      async function load_messages() {
         const res = await fetch('/messages');
         const msgs = await res.json();
         const box = document.getElementById('chat-messages');
@@ -91,13 +91,13 @@
         box.scrollTop = box.scrollHeight;
       }
 
-      async function initChat() {
+      async function init_chat() {
         try {
           await fetch('/init_chatbot', { method: 'POST' });
         } catch (e) {
           // ignore
         }
-        await loadMessages();
+        await load_messages();
       }
 
       document.getElementById('send-btn').onclick = async () => {
@@ -178,7 +178,7 @@
       }
     };
 
-    async function loadVideoList() {
+    async function load_video_list() {
       const res = await fetch('/list_videos');
       const files = await res.json();
       const refSel = document.getElementById('ref-file');
@@ -207,17 +207,17 @@
       [0,1],[0,15],[15,17],[0,16],[16,18]
     ];
 
-    async function loadKeypoints(url) {
+    async function load_keypoints(url) {
       const res = await fetch(url);
       return await res.json();
     }
 
-    function setupOverlay(videoId, canvasId, data) {
+    function setup_overlay(videoId, canvasId, data) {
       const video = document.getElementById(videoId);
       const canvas = document.getElementById(canvasId);
       const ctx = canvas.getContext('2d');
 
-      function draw() {
+      function draw_frame() {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -246,42 +246,42 @@
             }
           });
         }
-        requestAnimationFrame(draw);
+        requestAnimationFrame(draw_frame);
       }
-      requestAnimationFrame(draw);
+      requestAnimationFrame(draw_frame);
     }
 
     if (HAS_RESULTS) {
       Promise.all([
-        loadKeypoints("{{ url_for('static', filename='reference_keypoints.json') }}"),
-        loadKeypoints("{{ url_for('static', filename='current_keypoints.json') }}")
+        load_keypoints("{{ url_for('static', filename='reference_keypoints.json') }}"),
+        load_keypoints("{{ url_for('static', filename='current_keypoints.json') }}")
       ]).then(([refData, curData]) => {
-        setupOverlay('ref-video', 'ref-canvas', refData);
-        setupOverlay('cur-video', 'cur-canvas', curData);
+        setup_overlay('ref-video', 'ref-canvas', refData);
+        setup_overlay('cur-video', 'cur-canvas', curData);
       });
 
       const refVideo = document.getElementById('ref-video');
       const curVideo = document.getElementById('cur-video');
 
-      function syncPlay(from, to) {
+      function sync_play(from, to) {
         if (to.paused) {
           to.currentTime = from.currentTime;
           to.play();
         }
       }
 
-      refVideo.addEventListener('play', () => syncPlay(refVideo, curVideo));
-      curVideo.addEventListener('play', () => syncPlay(curVideo, refVideo));
+      refVideo.addEventListener('play', () => sync_play(refVideo, curVideo));
+      curVideo.addEventListener('play', () => sync_play(curVideo, refVideo));
       refVideo.addEventListener('pause', () => { if (!curVideo.paused) curVideo.pause(); });
       curVideo.addEventListener('pause', () => { if (!refVideo.paused) refVideo.pause(); });
     }
 
     // 初期表示
-    loadVideoList();
+    load_video_list();
     if (CHATBOT_ENABLED) {
-      initChat();
+      init_chat();
     }
-    async function updateUsage() {
+    async function update_usage() {
       try {
         const res = await fetch('/system_usage');
         const data = await res.json();
@@ -296,8 +296,8 @@
         // ignore errors
       }
     }
-    setInterval(updateUsage, 1000);
-    updateUsage();
+    setInterval(update_usage, 1000);
+    update_usage();
   </script>
 </body>
 </html>
