@@ -63,3 +63,8 @@ Then open `http://localhost:5000/` in your browser to view the comparison.
 The chat panel now uses the Qwen 8B model to provide golf swing tips in Japanese.
 Messages are handled on the server and are not persisted; restart the server
 to clear the conversation.
+
+For debugging without downloading the large model, set the environment
+variable ``CHATBOT_DEBUG=1`` when launching ``app.py``.  In this mode the
+server simply echoes back user messages prefixed with ``(デバッグ)`` allowing
+you to verify that message handling works correctly.

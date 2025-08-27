@@ -56,6 +56,14 @@ else:  # pragma: no cover - simple fallback
 
 MAX_MESSAGES = 20
 messages = []  # Store conversation history for the chatbot
+# Optional debug mode that returns a simple echo instead of invoking the
+# heavy language model.  Enable with ``CHATBOT_DEBUG=1`` when running the
+# server.
+CHATBOT_DEBUG = os.environ.get("CHATBOT_DEBUG", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 
 
 def _generate_reply() -> str:
@@ -63,6 +71,10 @@ def _generate_reply() -> str:
 
     if not ENABLE_CHATBOT:
         return "チャットボットは無効化されています。"
+
+    if CHATBOT_DEBUG:  # Simple echo reply for debugging conversation flow
+        last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+        return f"(デバッグ) {last_user}"
 
     _ensure_chatbot_model()
     prompt = "あなたは役立つゴルフスイングコーチです。\n"
@@ -80,7 +92,8 @@ def _generate_reply() -> str:
         gen_ids = output_ids[0, inputs["input_ids"].shape[1] :]
         reply = tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
         return reply or "返答を生成できませんでした。"
-    except Exception:
+    except Exception as exc:  # pragma: no cover - best effort logging
+        app.logger.exception("Chatbot reply generation failed: %s", exc)
         return "返答の生成中にエラーが発生しました。"
 
 # Paths and model configuration for OpenPose processing
