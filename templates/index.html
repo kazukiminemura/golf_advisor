@@ -23,7 +23,6 @@
 <body>
   <!-- 動画 -->
   <div class="video-container">
-    <p>差分スコア: {{ "%.4f"|format(score) if score is not none else "N/A" }}</p>
     <div class="file-select">
       <label for="ref-upload">参照</label>
       <input id="ref-upload" type="file" accept="video/mp4" />
@@ -32,7 +31,11 @@
       <input id="cur-upload" type="file" accept="video/mp4" />
       <select id="cur-file"></select>
       <button id="load-btn">更新</button>
+      <button id="analyze-btn">解析</button>
     </div>
+    <div id="status"></div>
+    {% if has_results %}
+    <p>差分スコア: {{ "%.4f"|format(score) }}</p>
     <div class="video-wrapper">
       <div class="video-item">
         <video id="ref-video" controls loop>
@@ -49,6 +52,7 @@
         <canvas id="cur-canvas"></canvas>
       </div>
     </div>
+    {% endif %}
   </div>
 
   <!-- チャット -->
@@ -61,6 +65,8 @@
   </div>
 
   <script>
+    const HAS_RESULTS = {{ 'true' if has_results else 'false' }};
+
     async function loadMessages() {
       const res = await fetch('/messages');
       const msgs = await res.json();
@@ -136,6 +142,17 @@
       location.reload();
     };
 
+    document.getElementById('analyze-btn').onclick = async () => {
+      const status = document.getElementById('status');
+      status.textContent = '解析中...';
+      try {
+        await fetch('/analyze', { method: 'POST' });
+        location.reload();
+      } catch (e) {
+        status.textContent = '解析に失敗しました。';
+      }
+    };
+
     async function loadVideoList() {
       const res = await fetch('/list_videos');
       const files = await res.json();
@@ -209,32 +226,34 @@
       requestAnimationFrame(draw);
     }
 
-    Promise.all([
-      loadKeypoints("{{ url_for('static', filename='reference_keypoints.json') }}"),
-      loadKeypoints("{{ url_for('static', filename='current_keypoints.json') }}")
-    ]).then(([refData, curData]) => {
-      setupOverlay('ref-video', 'ref-canvas', refData);
-      setupOverlay('cur-video', 'cur-canvas', curData);
-    });
+    if (HAS_RESULTS) {
+      Promise.all([
+        loadKeypoints("{{ url_for('static', filename='reference_keypoints.json') }}"),
+        loadKeypoints("{{ url_for('static', filename='current_keypoints.json') }}")
+      ]).then(([refData, curData]) => {
+        setupOverlay('ref-video', 'ref-canvas', refData);
+        setupOverlay('cur-video', 'cur-canvas', curData);
+      });
+
+      const refVideo = document.getElementById('ref-video');
+      const curVideo = document.getElementById('cur-video');
+
+      function syncPlay(from, to) {
+        if (to.paused) {
+          to.currentTime = from.currentTime;
+          to.play();
+        }
+      }
+
+      refVideo.addEventListener('play', () => syncPlay(refVideo, curVideo));
+      curVideo.addEventListener('play', () => syncPlay(curVideo, refVideo));
+      refVideo.addEventListener('pause', () => { if (!curVideo.paused) curVideo.pause(); });
+      curVideo.addEventListener('pause', () => { if (!refVideo.paused) refVideo.pause(); });
+    }
 
     // 初期表示
     loadMessages();
     loadVideoList();
-
-    const refVideo = document.getElementById('ref-video');
-    const curVideo = document.getElementById('cur-video');
-
-    function syncPlay(from, to) {
-      if (to.paused) {
-        to.currentTime = from.currentTime;
-        to.play();
-      }
-    }
-
-    refVideo.addEventListener('play', () => syncPlay(refVideo, curVideo));
-    curVideo.addEventListener('play', () => syncPlay(curVideo, refVideo));
-    refVideo.addEventListener('pause', () => { if (!curVideo.paused) curVideo.pause(); });
-    curVideo.addEventListener('pause', () => { if (!refVideo.paused) refVideo.pause(); });
   </script>
 </body>
 </html>
