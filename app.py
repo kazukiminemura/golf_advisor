@@ -4,7 +4,12 @@ import json
 from werkzeug.utils import secure_filename
 from transformers import AutoModelForCausalLM, AutoTokenizer, modeling_utils
 
-from golf_swing_compare import compare_swings, draw_skeleton, extract_keypoints
+from golf_swing_compare import (
+    compare_swings,
+    draw_skeleton,
+    extract_keypoints,
+    analyze_differences,
+)
 
 app = Flask(__name__)
 # Qwen 8B モデルを使用してチャットボットを構築
@@ -19,7 +24,7 @@ QWEN_MODEL = "Qwen/Qwen3-8B"
 tokenizer = AutoTokenizer.from_pretrained(QWEN_MODEL)
 model = AutoModelForCausalLM.from_pretrained(QWEN_MODEL)
 # 簡易的なチャットボット用メッセージ履歴をメモリに保持
-messages = [{"role": "assistant", "content": "ゴルフスイングについてご質問ください。"}]
+messages = []
 
 
 def _generate_reply(_: str) -> str:
@@ -29,12 +34,12 @@ def _generate_reply(_: str) -> str:
         role = "ユーザー" if m["role"] == "user" else "コーチ"
         prompt += f"{role}: {m['content']}\n"
     prompt += "コーチ:"
-    input_ids = tokenizer.encode(prompt, return_tensors="pt")
+    inputs = tokenizer(prompt, return_tensors="pt")
     output_ids = model.generate(
-        input_ids, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+        **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
     )
     response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    reply = response[len(prompt):].strip()
+    reply = response[len(prompt) :].strip()
     return reply
 
 # Paths and model configuration for OpenPose processing
@@ -109,6 +114,25 @@ def prepare_videos() -> None:
     _annotate_video(CUR_VIDEO, cur_kp, OUT_CUR)
     _save_keypoints_json(ref_kp, ref_fps, REF_KP_JSON)
     _save_keypoints_json(cur_kp, cur_fps, CUR_KP_JSON)
+
+    # 解析結果を用いた初期チャットメッセージを生成
+    diffs = analyze_differences(ref_kp, cur_kp)
+    significant = sorted(diffs.items(), key=lambda x: x[1], reverse=True)[:3]
+    diff_text = ", ".join(f"{name} ({dist:.1f})" for name, dist in significant)
+    prompt = (
+        "あなたは役立つゴルフスイングコーチです。\n"
+        f"スイングの全体的な差スコア: {score:.2f}。\n"
+        f"主な差分: {diff_text}。\n"
+        "まず何が良くて何が悪いのか簡潔に教えてください。\nコーチ:"
+    )
+    inputs = tokenizer(prompt, return_tensors="pt")
+    output_ids = model.generate(
+        **inputs, max_new_tokens=60, do_sample=True, top_p=0.95, top_k=50
+    )
+    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    initial = response[len(prompt) :].strip()
+    global messages
+    messages = [{"role": "assistant", "content": initial}]
 
 
 @app.route("/")
