@@ -152,19 +152,6 @@ class SwingChatBot:
         return reply
 
 
-def run_chatbot(ref_kp, test_kp, score):
-    """Provide swing advice using a small LLM chatbot in the terminal."""
-    bot = SwingChatBot(ref_kp, test_kp, score)
-    print(f"コーチ: {bot.initial_message()}")
-    while True:
-        try:
-            user = input("あなた: ")
-        except EOFError:
-            break
-        if user.strip().lower() in {"quit", "exit", "終了"}:
-            break
-        print(f"コーチ: {bot.ask(user)}")
-
 
 # Pairs of keypoints that make up the skeletal connections. The indices
 # correspond to the standard OpenPose output ordering. When a pair index is

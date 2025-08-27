@@ -6,4 +6,3 @@ transformers
 torch
 Pillow
 sentencepiece
-accelerate

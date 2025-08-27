@@ -27,7 +27,7 @@ model = AutoModelForCausalLM.from_pretrained(QWEN_MODEL)
 messages = []
 
 
-def _generate_reply(_: str) -> str:
+def _generate_reply() -> str:
     """Return an LLM-generated reply for the chatbot.
 
     `transformers` の `decode` では、入力プロンプトと同一の文字列が
@@ -172,7 +172,7 @@ def message_handler():
         data = request.get_json() or {}
         user_msg = data.get("message", "")
         messages.append({"role": "user", "content": user_msg})
-        reply = _generate_reply(user_msg)
+        reply = _generate_reply()
         messages.append({"role": "assistant", "content": reply})
         return jsonify({"reply": reply})
     else:
