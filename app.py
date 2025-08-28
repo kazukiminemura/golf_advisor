@@ -303,6 +303,7 @@ def index():
         cur_video_name=CUR_VIDEO.name,
         has_results=has_results,
         chatbot_enabled=ENABLE_CHATBOT,
+        device=DEVICE,
     )
 
 @app.route("/messages", methods=["GET", "POST"])
@@ -471,12 +472,15 @@ def set_videos():
     data = request.get_json() or {}
     ref_file = data.get("reference_file")
     cur_file = data.get("current_file")
+    device = (data.get("device") or "").upper()
 
-    global REF_VIDEO, CUR_VIDEO
+    global REF_VIDEO, CUR_VIDEO, DEVICE
     if ref_file:
         REF_VIDEO = Path("data") / ref_file  # Update reference video path
     if cur_file:
         CUR_VIDEO = Path("data") / cur_file  # Update current video path
+    if device in {"CPU", "GPU", "NPU"}:
+        DEVICE = device
 
     # Clear all previous analysis data
     global score, bot, messages, ref_keypoints, cur_keypoints
@@ -491,8 +495,10 @@ def set_videos():
         if p.exists():
             p.unlink()  # Remove previous output files
             
-    app.logger.info(f"Videos set to: ref={REF_VIDEO.name}, cur={CUR_VIDEO.name}")
-    return jsonify({"status": "ok"})
+    app.logger.info(
+        f"Videos set to: ref={REF_VIDEO.name}, cur={CUR_VIDEO.name}, device={DEVICE}"
+    )
+    return jsonify({"status": "ok", "device": DEVICE})
 
 
 @app.route("/chatbot_status")

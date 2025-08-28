@@ -32,6 +32,12 @@
       <label for="cur-upload">対象</label>
       <input id="cur-upload" type="file" accept="video/mp4" />
       <select id="cur-file"></select>
+      <label for="device-select">デバイス</label>
+      <select id="device-select">
+        <option value="CPU">CPU</option>
+        <option value="GPU">GPU</option>
+        <option value="NPU">NPU</option>
+      </select>
       <button id="process-btn">更新＆解析</button>
     </div>
     <div id="status"></div>
@@ -75,6 +81,7 @@
   <script>
     const HAS_RESULTS = {{ 'true' if has_results else 'false' }};
     const CHATBOT_ENABLED = {{ 'true' if chatbot_enabled else 'false' }};
+    const CURRENT_DEVICE = '{{ device }}';
 
     if (CHATBOT_ENABLED) {
       async function load_messages() {
@@ -138,6 +145,7 @@
     document.getElementById('process-btn').onclick = async () => {
       const refSel = document.getElementById('ref-file').value;
       const curSel = document.getElementById('cur-file').value;
+      const device = document.getElementById('device-select').value;
       const refUp = document.getElementById('ref-upload').files[0];
       const curUp = document.getElementById('cur-upload').files[0];
 
@@ -157,7 +165,7 @@
       await fetch('/set_videos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reference_file: refFile, current_file: curFile })
+        body: JSON.stringify({ reference_file: refFile, current_file: curFile, device })
       });
 
       const status = document.getElementById('status');
@@ -278,6 +286,7 @@
 
     // 初期表示
     load_video_list();
+    document.getElementById('device-select').value = CURRENT_DEVICE;
     if (CHATBOT_ENABLED) {
       init_chat();
     }
