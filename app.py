@@ -14,6 +14,7 @@ from golf_swing_compare import (
     extract_keypoints,
     SwingChatBot,
 )
+from simple_chatbot import SimpleChatBot
 
 app = Flask(__name__)
 
@@ -32,7 +33,11 @@ LAZY_CHATBOT_INIT = os.environ.get("LAZY_CHATBOT_INIT", "true").lower() in {
 
 bot = None
 MAX_MESSAGES = 20
-messages = []  # Store conversation history for the chatbot
+messages = []  # Store conversation history for the swing chatbot
+
+# General purpose chatbot
+general_bot = None
+general_messages = []
 
 # Cached keypoints for chatbot initialization
 ref_keypoints = None
@@ -305,6 +310,35 @@ def index():
         chatbot_enabled=ENABLE_CHATBOT,
         device=DEVICE,
     )
+
+
+@app.route("/chat")
+def chat():
+    """Render simple general-purpose chat interface."""
+    return render_template("chat.html")
+
+
+@app.route("/chat_messages", methods=["GET", "POST"])
+def chat_messages_handler():
+    """Handle messages for the general-purpose chatbot."""
+    global general_bot, general_messages
+    if request.method == "POST":
+        data = request.get_json() or {}
+        user_msg = data.get("message", "").strip()
+        if not user_msg:
+            return jsonify({"reply": ""})
+        if general_bot is None:
+            general_bot = SimpleChatBot()
+        general_messages.append({"role": "user", "content": user_msg})
+        if len(general_messages) > MAX_MESSAGES:
+            general_messages[:] = general_messages[-MAX_MESSAGES:]
+        reply = general_bot.ask(user_msg)
+        general_messages.append({"role": "assistant", "content": reply})
+        if len(general_messages) > MAX_MESSAGES:
+            general_messages[:] = general_messages[-MAX_MESSAGES:]
+        return jsonify({"reply": reply})
+    else:
+        return jsonify(general_messages)
 
 @app.route("/messages", methods=["GET", "POST"])
 def message_handler():
