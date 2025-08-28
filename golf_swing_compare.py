@@ -114,11 +114,11 @@ class SwingChatBot:
 
     def __init__(self, ref_kp, test_kp, score):
         from transformers import AutoModelForCausalLM, AutoTokenizer
-        diffs = analyze_differences(ref_kp, test_kp)  # Measure differences
-        significant = sorted(diffs.items(), key=lambda x: x[1], reverse=True)[:3]
-        diff_text = ", ".join(f"{name} ({dist:.1f})" for name, dist in significant)
+        # diffs = analyze_differences(ref_kp, test_kp)  # Measure differences
+        # significant = sorted(diffs.items(), key=lambda x: x[1], reverse=True)[:3]
+        # diff_text = ", ".join(f"{name} ({dist:.1f})" for name, dist in significant)
 
-        model_name = "Qwen/Qwen3-8B"
+        model_name = "google/gemma-3-270m-it"
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name, trust_remote_code=True
         )  # Load tokenizer
@@ -129,7 +129,6 @@ class SwingChatBot:
         self.history = (
             "あなたは役立つゴルフスイングコーチのチャットボットです。\n"
             f"スイングの全体的な差分スコア: {score:.2f}。\n"
-            f"主な差分: {diff_text}。\n"
             "簡潔なアドバイスをしてください。\nコーチ:"
         )  # Conversation history prompt
 
