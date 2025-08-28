@@ -1,6 +1,8 @@
 import argparse
 from pathlib import Path
 
+import torch
+
 
 def load_model(model_xml: str, device: str = "CPU"):
     """Load an OpenVINO pose estimation model."""
@@ -110,53 +112,51 @@ def analyze_differences(ref_kp, test_kp):
 
 
 class SwingChatBot:
-    """Simple wrapper around a small language model for swing advice."""
+    """Minimal conversational model for swing advice."""
 
     def __init__(self, ref_kp, test_kp, score):
         from transformers import AutoModelForCausalLM, AutoTokenizer
-        # diffs = analyze_differences(ref_kp, test_kp)  # Measure differences
-        # significant = sorted(diffs.items(), key=lambda x: x[1], reverse=True)[:3]
-        # diff_text = ", ".join(f"{name} ({dist:.1f})" for name, dist in significant)
 
         model_name = "google/gemma-3-270m-it"
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name, trust_remote_code=True
-        )  # Load tokenizer
+        )
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name, trust_remote_code=True
-        )  # Load model
-
-        self.history = (
+        )
+        prompt = (
             "あなたは丁寧なゴルフスイングコーチです。"
             f"スイングの全体的な差分スコアは {score:.2f} です。"
-            "ユーザーの質問には簡潔な日本語で答えてください。\nコーチ:"
-        )  # Conversation history prompt
+            "ユーザーの質問には簡潔な日本語で答えてください。"
+        )
+        self.chat_history = self.tokenizer.encode(
+            prompt + self.tokenizer.eos_token, return_tensors="pt"
+        )
 
     def initial_message(self):
         reply = "解析が完了しました。準備ができました。どんな練習について知りたいですか？"
-        self.history += " " + reply  # Append to history
+        self.chat_history = torch.cat(
+            [
+                self.chat_history,
+                self.tokenizer.encode(reply + self.tokenizer.eos_token, return_tensors="pt"),
+            ],
+            dim=-1,
+        )
         return reply
 
-    def ask(self, user):
-        self.history += f"\nユーザー: {user}\nコーチ:"
-        inputs = self.tokenizer(self.history, return_tensors="pt")
+    def ask(self, message: str) -> str:
+        new_input = self.tokenizer.encode(
+            message + self.tokenizer.eos_token, return_tensors="pt"
+        )
+        input_ids = torch.cat([self.chat_history, new_input], dim=-1)
         output_ids = self.model.generate(
-            **inputs,
-            max_new_tokens=80,
-            temperature=0.3,
-            do_sample=True,
-            top_p=0.9,
-            top_k=50,
+            input_ids, max_length=input_ids.shape[-1] + 80, pad_token_id=self.tokenizer.eos_token_id
         )
-        response = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
-        reply = response[len(self.history) :].strip().split("\n")[0]
-        reply = (
-            reply.replace("ユーザー:", "").replace("コーチ:", "").strip()
+        self.chat_history = output_ids
+        response = self.tokenizer.decode(
+            output_ids[:, input_ids.shape[-1] :][0], skip_special_tokens=True
         )
-        if not reply:
-            reply = "すみません、うまく答えられませんでした。別の質問をしてください。"
-        self.history += " " + reply
-        return reply
+        return response.strip()
 
 
 
