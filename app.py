@@ -55,6 +55,7 @@ REF_KP_JSON = Path("static/reference_keypoints.json")
 CUR_KP_JSON = Path("static/current_keypoints.json")
 
 score = None
+analysis_running = False  # Guard to prevent chatbot init during analysis
 
 
 def get_gpu_usage() -> float:
@@ -167,6 +168,10 @@ def _init_chatbot_sync() -> bool:
     if score is None:
         app.logger.warning("Score not available for chatbot initialization")
         return False
+    # Avoid initializing the chatbot while analysis is still producing outputs
+    if analysis_running:
+        app.logger.info("Deferring chatbot initialization until analysis completes")
+        return False
     
     try:
         app.logger.info("Initializing chatbot with keypoints and score")
@@ -193,7 +198,7 @@ async def init_chatbot() -> bool:
 
 def _prepare_videos_sync() -> None:
     """Generate annotated videos, keypoint JSONs and compute the swing score."""
-    global score, ref_keypoints, cur_keypoints
+    global score, ref_keypoints, cur_keypoints, analysis_running
     if (
         score is not None
         and OUT_REF.exists()
@@ -204,6 +209,7 @@ def _prepare_videos_sync() -> None:
         app.logger.info("Videos already processed, skipping")
         return  # Skip processing if results already exist
 
+    analysis_running = True
     try:
         import cv2
         app.logger.info("Starting video analysis...")
@@ -292,15 +298,22 @@ async def prepare_videos() -> None:
     await asyncio.to_thread(_prepare_videos_sync)
 
 
+def _results_ready() -> bool:
+    """Return True when analysis artifacts are ready for UI/chat.
+
+    Prefer JSON keypoints existence since the web UI overlays skeletons
+    client-side and the chatbot only needs keypoints and score.
+    """
+    # Prefer in-memory values first
+    if score is not None and ref_keypoints is not None and cur_keypoints is not None:
+        return True
+    # Fallback to persisted artifacts (JSONs) plus score
+    return score is not None and REF_KP_JSON.exists() and CUR_KP_JSON.exists()
+
+
 @app.route("/")
 def index():
-    has_results = (
-        score is not None
-        and OUT_REF.exists()
-        and OUT_CUR.exists()
-        and REF_KP_JSON.exists()
-        and CUR_KP_JSON.exists()
-    )  # Determine if analysis results exist
+    has_results = _results_ready()  # Determine if analysis results exist
     return render_template(
         "index.html",
         score=score,
@@ -385,7 +398,7 @@ def message_handler():
             return jsonify(messages)
         else:
             # Check if video analysis is complete but chatbot not initialized
-            analysis_complete = all(x is not None for x in [ref_keypoints, cur_keypoints, score])
+            analysis_complete = (not analysis_running) and _results_ready()
             if analysis_complete:
                 return jsonify([
                     {
@@ -502,12 +515,23 @@ async def analyze():
             return jsonify({"error": "キーポイント抽出に失敗しました。モデルファイルを確認してください。"}), 500
         else:
             return jsonify({"error": f"分析中にエラーが発生しました: {error_msg}"}), 500
+    finally:
+        # Ensure running flag is cleared even if exceptions occur
+        global analysis_running
+        analysis_running = False
 
 
 @app.route("/init_chatbot", methods=["POST"])
 async def init_chatbot_route():
     """Initialize the chatbot after videos are processed."""
     try:
+        # Prevent initialization during analysis to avoid contention
+        global analysis_running
+        if analysis_running:
+            return jsonify({
+                "status": "error",
+                "message": "動画分析中のため、チャットボットの初期化は完了後に実行してください。"
+            }), 400
         success = await init_chatbot()  # Initialize chatbot separately
         if success:
             return jsonify({"status": "ok", "message": "チャットボットの準備ができました。"})
@@ -556,7 +580,7 @@ def set_videos():
 @app.route("/chatbot_status")
 def chatbot_status():
     """Get current chatbot status."""
-    analysis_complete = all(x is not None for x in [ref_keypoints, cur_keypoints, score])
+    analysis_complete = (not analysis_running) and _results_ready()
     return jsonify({
         "enabled": ENABLE_CHATBOT,
         "initialized": bot is not None,
