@@ -127,40 +127,35 @@ class SwingChatBot:
         )  # Load model
 
         self.history = (
-            "あなたは役立つゴルフスイングコーチのチャットボットです。\n"
-            f"スイングの全体的な差分スコア: {score:.2f}。\n"
-            "簡潔なアドバイスをしてください。\nコーチ:"
+            "あなたは丁寧なゴルフスイングコーチです。"
+            f"スイングの全体的な差分スコアは {score:.2f} です。"
+            "ユーザーの質問には簡潔な日本語で答えてください。\nコーチ:"
         )  # Conversation history prompt
 
     def initial_message(self):
-        inputs = self.tokenizer(self.history, return_tensors="pt")  # Tokenize history
-        output_ids = self.model.generate(
-            **inputs,
-            max_new_tokens=200,
-            temperature=0.7,
-            do_sample=True,
-            top_p=0.95,
-            top_k=50,
-        )  # Generate reply
-        response = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
-        reply = response[len(self.history) :].strip()  # Slice out new text
+        reply = "解析が完了しました。準備ができました。どんな練習について知りたいですか？"
         self.history += " " + reply  # Append to history
         return reply
 
     def ask(self, user):
-        self.history += f"\nユーザー: {user}\nコーチ:"  # Add user message
-        inputs = self.tokenizer(self.history, return_tensors="pt")  # Tokenize
+        self.history += f"\nユーザー: {user}\nコーチ:"
+        inputs = self.tokenizer(self.history, return_tensors="pt")
         output_ids = self.model.generate(
             **inputs,
-            max_new_tokens=200,
-            temperature=0.7,
+            max_new_tokens=80,
+            temperature=0.3,
             do_sample=True,
-            top_p=0.95,
+            top_p=0.9,
             top_k=50,
-        )  # Generate reply
+        )
         response = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
-        reply = response[len(self.history) :].strip()  # Slice out new text
-        self.history += " " + reply  # Append reply
+        reply = response[len(self.history) :].strip().split("\n")[0]
+        reply = (
+            reply.replace("ユーザー:", "").replace("コーチ:", "").strip()
+        )
+        if not reply:
+            reply = "すみません、うまく答えられませんでした。別の質問をしてください。"
+        self.history += " " + reply
         return reply
 
 
