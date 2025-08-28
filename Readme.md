@@ -68,3 +68,9 @@ For debugging without downloading the large model, set the environment
 variable ``CHATBOT_DEBUG=1`` when launching ``app.py``.  In this mode the
 server simply echoes back user messages prefixed with ``(デバッグ)`` allowing
 you to verify that message handling works correctly.
+
+## Simple Web Chatbot
+
+A lightweight general–purpose chatbot is also available at
+`http://localhost:5000/chat`.  It uses a small DialoGPT model and stores the
+conversation in memory only for the duration of the session.
