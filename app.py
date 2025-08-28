@@ -380,8 +380,15 @@ def message_handler():
             app.logger.exception("Error in chatbot conversation: %s", exc)
             return jsonify({"reply": "申し訳ございませんが、エラーが発生しました。もう一度お試しください。"})
     else:
-        # GET request - return conversation history
-        return jsonify(messages if bot is not None else [])
+        # GET request - return conversation history or initialization message
+        if bot is not None:
+            return jsonify(messages)
+        return jsonify([
+            {
+                "role": "assistant",
+                "content": "チャットボットは準備中です。まず動画を分析してください。",
+            }
+        ])
 
 
 @app.route("/videos/<path:filename>")
