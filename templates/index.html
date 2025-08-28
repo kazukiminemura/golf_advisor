@@ -99,112 +99,94 @@
 
     let chatbotReady = false;
 
-    // チャットDOMの存在で機能を有効化（環境変数に依存しない安全策）
-    if (document.getElementById('chat-input')) {
-      async function update_chatbot_status() {
-        try {
-          const res = await fetch('/chatbot_status');
-          const status = await res.json();
-          const statusDiv = document.getElementById('chat-status');
-          const chatInput = document.getElementById('chat-input');
-          const sendBtn = document.getElementById('send-btn');
-          
-          if (status.initialized) {
-            statusDiv.textContent = "チャットボットの準備ができました。";
-            statusDiv.className = "chat-status ready";
-            chatInput.disabled = false;
-            sendBtn.disabled = false;
-            chatInput.placeholder = "メッセージを入力...";
-            chatbotReady = true;
-          } else if (status.analysis_complete) {
-            statusDiv.textContent = "動画分析が完了しました。チャットボットの準備ができました！";
-            statusDiv.className = "chat-status ready";
-            chatInput.disabled = false;
-            sendBtn.disabled = false;
-            chatInput.placeholder = "メッセージを入力...";
-            chatbotReady = true;
-          } else {
-            statusDiv.textContent = "チャットボットは準備中です。まず動画を分析してください。";
-            statusDiv.className = "chat-status preparing";
-            chatInput.disabled = true;
-            sendBtn.disabled = true;
-            chatInput.placeholder = "分析を完了してください...";
-            chatbotReady = false;
-          }
-        } catch (e) {
-          const statusDiv = document.getElementById('chat-status');
-          statusDiv.textContent = "チャットボット状態の取得に失敗しました。";
-          statusDiv.className = "chat-status error";
-          chatbotReady = false;
-        }
-      }
-
-      async function load_messages() {
-        if (!chatbotReady) return;
+    // --- チャットボット状態更新 ---
+    async function update_chatbot_status() {
+      try {
+        const res = await fetch('/chatbot_status');
+        const status = await res.json();
+        const statusDiv = document.getElementById('chat-status');
+        const chatInput = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('send-btn');
         
-        try {
-          const res = await fetch('/messages');
-          const msgs = await res.json();
-          const box = document.getElementById('chat-messages');
-          box.innerHTML = '';
-          msgs.forEach(m => {
-            const p = document.createElement('p');
-            const prefix = m.role === 'user' ? 'あなた: ' : 'コーチ: ';
-            p.textContent = prefix + m.content;
-            box.appendChild(p);
-          });
-          box.scrollTop = box.scrollHeight;
-        } catch (e) {
-          console.error('Failed to load messages:', e);
-        }
-      }
-
-      async function init_chat() {
-        await update_chatbot_status();
-        // 解析済みであれば、サーバ状態取得に失敗しても入力を先に有効化
-        if (HAS_RESULTS) {
-          const statusDiv = document.getElementById('chat-status');
-          const chatInput = document.getElementById('chat-input');
-          const sendBtn = document.getElementById('send-btn');
+        if (status.initialized || status.analysis_complete) {
           statusDiv.textContent = "動画分析が完了しました。チャットボットの準備ができました！";
           statusDiv.className = "chat-status ready";
           chatInput.disabled = false;
           sendBtn.disabled = false;
           chatInput.placeholder = "メッセージを入力...";
           chatbotReady = true;
+        } else {
+          statusDiv.textContent = "チャットボットは準備中です。まず動画を分析してください。";
+          statusDiv.className = "chat-status preparing";
+          chatInput.disabled = true;
+          sendBtn.disabled = true;
+          chatbotReady = false;
         }
-        // 初期化はバックグラウンドで試行
-        try {
-          await fetch('/init_chatbot', { method: 'POST' });
-        } catch (e) {
-          console.warn('Chatbot init may have failed:', e);
-        }
-        await update_chatbot_status();
-        await load_messages();
+      } catch (e) {
+        const statusDiv = document.getElementById('chat-status');
+        statusDiv.textContent = "チャットボット状態の取得に失敗しました。";
+        statusDiv.className = "chat-status error";
+        chatbotReady = false;
       }
+    }
 
+    // --- メッセージ読み込み ---
+    async function load_messages() {
+      if (!chatbotReady) return;
+      try {
+        const res = await fetch('/messages');
+        const msgs = await res.json();
+        const box = document.getElementById('chat-messages');
+        box.innerHTML = '';
+        msgs.forEach(m => {
+          const p = document.createElement('p');
+          const prefix = m.role === 'user' ? 'あなた: ' : 'コーチ: ';
+          p.textContent = prefix + m.content;
+          box.appendChild(p);
+        });
+        box.scrollTop = box.scrollHeight;
+      } catch (e) {
+        console.error('Failed to load messages:', e);
+      }
+    }
+
+    // --- チャット初期化 ---
+    async function init_chat() {
+      await update_chatbot_status();
+      if (HAS_RESULTS) {
+        const statusDiv = document.getElementById('chat-status');
+        const chatInput = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('send-btn');
+        statusDiv.textContent = "動画分析が完了しました。チャットボットの準備ができました！";
+        statusDiv.className = "chat-status ready";
+        chatInput.disabled = false;
+        sendBtn.disabled = false;
+        chatInput.placeholder = "メッセージを入力...";
+        chatbotReady = true;
+      }
+      try { await fetch('/init_chatbot', { method: 'POST' }); } catch (_) {}
+      await update_chatbot_status();
+      await load_messages();
+    }
+
+    // --- メッセージ送信 ---
+    if (document.getElementById('chat-input')) {
       document.getElementById('send-btn').onclick = async () => {
         if (!chatbotReady) return;
-        
         const input = document.getElementById('chat-input');
         const text = input.value.trim();
         if (!text) return;
         const box = document.getElementById('chat-messages');
 
-        // 送信したメッセージを即座に表示
         const userP = document.createElement('p');
         userP.textContent = 'あなた: ' + text;
         box.appendChild(userP);
-        box.scrollTop = box.scrollHeight;
-
         input.value = '';
 
-        // 送信中の表示
         const loadingP = document.createElement('p');
         loadingP.textContent = 'コーチ: 考え中...';
         loadingP.style.opacity = '0.6';
         box.appendChild(loadingP);
-        box.scrollTop = box.scrollHeight;
 
         try {
           const res = await fetch('/messages', {
@@ -213,27 +195,20 @@
             body: JSON.stringify({ message: text })
           });
           const data = await res.json();
-
-          // ローディング表示を削除
           box.removeChild(loadingP);
-
           const coachP = document.createElement('p');
           coachP.textContent = 'コーチ: ' + data.reply;
           box.appendChild(coachP);
-          box.scrollTop = box.scrollHeight;
         } catch (e) {
-          // ローディング表示を削除
           box.removeChild(loadingP);
-          
           const errP = document.createElement('p');
           errP.textContent = 'コーチ: 返答の取得に失敗しました。';
           errP.style.color = 'red';
           box.appendChild(errP);
-          box.scrollTop = box.scrollHeight;
         }
+        box.scrollTop = box.scrollHeight;
       };
 
-      // Enterキーでメッセージ送信
       document.getElementById('chat-input').addEventListener('keypress', (e) => {
         if (e.key === 'Enter' && !e.shiftKey && chatbotReady) {
           e.preventDefault();
@@ -242,16 +217,15 @@
       });
     }
 
+    // --- 解析ボタン ---
     document.getElementById('process-btn').onclick = async () => {
+      const refUp = document.getElementById('ref-upload').files[0];
+      const curUp = document.getElementById('cur-upload').files[0];
       const refSel = document.getElementById('ref-file').value;
       const curSel = document.getElementById('cur-file').value;
       const device = document.getElementById('device-select').value;
-      const refUp = document.getElementById('ref-upload').files[0];
-      const curUp = document.getElementById('cur-upload').files[0];
 
-      let refFile = refSel;
-      let curFile = curSel;
-
+      let refFile = refSel, curFile = curSel;
       if (refUp || curUp) {
         const form = new FormData();
         if (refUp) form.append('reference', refUp);
@@ -271,7 +245,6 @@
       const status = document.getElementById('status');
       status.textContent = '解析中';
       
-      // チャットボット状態を分析中に更新
       if (CHATBOT_ENABLED) {
         const statusDiv = document.getElementById('chat-status');
         statusDiv.textContent = "動画分析中です。しばらくお待ちください...";
@@ -280,62 +253,48 @@
         document.getElementById('send-btn').disabled = true;
         chatbotReady = false;
       }
-      
+
       let dots = 0;
       const timer = setInterval(() => {
         dots = (dots + 1) % 4;
         status.textContent = '解析中' + '.'.repeat(dots);
       }, 500);
-      
+
       let analyzeData = null;
       try {
         const analyzeRes = await fetch('/analyze', { method: 'POST' });
-        // Robust JSON handling
-        const ct = (analyzeRes.headers.get('Content-Type') || '').toLowerCase();
-        if (!ct.includes('application/json')) {
-          throw new Error('Invalid response type');
-        }
         analyzeData = await analyzeRes.json();
       } catch (e) {
         clearInterval(timer);
         status.textContent = '解析に失敗しました。';
-        if (CHATBOT_ENABLED) {
-          const statusDiv = document.getElementById('chat-status');
-          statusDiv.textContent = "分析中にエラーが発生しました。";
-          statusDiv.className = "chat-status error";
-        }
         return;
       }
-
       clearInterval(timer);
 
       if (analyzeData && analyzeData.error) {
         status.textContent = '解析に失敗しました: ' + analyzeData.error;
-        if (CHATBOT_ENABLED) {
-          const statusDiv = document.getElementById('chat-status');
-          statusDiv.textContent = "分析に失敗しました。再度お試しください。";
-          statusDiv.className = "chat-status error";
-        }
         return;
       }
 
-      // 成功時
+      // ✅ 成功時: フロント側で強制的に完了状態へ
       status.textContent = '解析完了';
-
-      // チャットボット状態の更新は失敗しても無視（解析結果は成功として扱う）
       if (CHATBOT_ENABLED) {
-        try {
-          await update_chatbot_status();
-          await load_messages();
-        } catch (_) {
-          // ignore chat update errors
-        }
+        const statusDiv = document.getElementById('chat-status');
+        const chatInput = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('send-btn');
+        statusDiv.textContent = "動画分析が完了しました。チャットボットの準備ができました！";
+        statusDiv.className = "chat-status ready";
+        chatInput.disabled = false;
+        sendBtn.disabled = false;
+        chatInput.placeholder = "メッセージを入力...";
+        chatbotReady = true;
+        load_messages().catch(() => {});
       }
 
-      // 結果表示のため軽く待ってから再読み込み
       setTimeout(() => location.reload(), 1000);
     };
 
+    // --- 動画リスト読み込み ---
     async function load_video_list() {
       const res = await fetch('/list_videos');
       const files = await res.json();
@@ -343,121 +302,43 @@
       const curSel = document.getElementById('cur-file');
       refSel.innerHTML = '';
       curSel.innerHTML = '';
+
       files.forEach(f => {
         const o1 = document.createElement('option');
         o1.value = f;
         o1.textContent = f;
         refSel.appendChild(o1);
+
         const o2 = document.createElement('option');
         o2.value = f;
         o2.textContent = f;
         curSel.appendChild(o2);
       });
+
       refSel.value = '{{ ref_video_name }}';
       curSel.value = '{{ cur_video_name }}';
     }
 
-    const POSE_PAIRS = [
-      [1,2],[2,3],[3,4],
-      [1,5],[5,6],[6,7],
-      [1,8],[8,9],[9,10],
-      [8,12],[12,13],[13,14],
-      [0,1],[0,15],[15,17],[0,16],[16,18]
-    ];
-
-    async function load_keypoints(url) {
-      const res = await fetch(url);
-      return await res.json();
-    }
-
-    function setup_overlay(videoId, canvasId, data) {
-      const video = document.getElementById(videoId);
-      const canvas = document.getElementById(canvasId);
-      const ctx = canvas.getContext('2d');
-
-      function draw_frame() {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const frame = Math.floor(video.currentTime * data.fps);
-        const kps = data.keypoints[frame];
-        if (kps) {
-          kps.forEach(([x,y,conf]) => {
-            if (conf > 0.3) {
-              const px = x * canvas.width;
-              const py = y * canvas.height;
-              ctx.beginPath();
-              ctx.arc(px, py, 3, 0, Math.PI * 2);
-              ctx.fillStyle = 'lime';
-              ctx.fill();
-            }
-          });
-          POSE_PAIRS.forEach(([a,b]) => {
-            const pa = kps[a], pb = kps[b];
-            if (pa && pb && pa[2] > 0.3 && pb[2] > 0.3) {
-              ctx.beginPath();
-              ctx.moveTo(pa[0] * canvas.width, pa[1] * canvas.height);
-              ctx.lineTo(pb[0] * canvas.width, pb[1] * canvas.height);
-              ctx.strokeStyle = 'blue';
-              ctx.lineWidth = 2;
-              ctx.stroke();
-            }
-          });
-        }
-        requestAnimationFrame(draw_frame);
-      }
-      requestAnimationFrame(draw_frame);
-    }
-
-    if (HAS_RESULTS) {
-      Promise.all([
-        load_keypoints("{{ url_for('static', filename='reference_keypoints.json') }}"),
-        load_keypoints("{{ url_for('static', filename='current_keypoints.json') }}")
-      ]).then(([refData, curData]) => {
-        setup_overlay('ref-video', 'ref-canvas', refData);
-        setup_overlay('cur-video', 'cur-canvas', curData);
-      });
-
-      const refVideo = document.getElementById('ref-video');
-      const curVideo = document.getElementById('cur-video');
-
-      function sync_play(from, to) {
-        if (to.paused) {
-          to.currentTime = from.currentTime;
-          to.play();
-        }
-      }
-
-      refVideo.addEventListener('play', () => sync_play(refVideo, curVideo));
-      curVideo.addEventListener('play', () => sync_play(curVideo, refVideo));
-      refVideo.addEventListener('pause', () => { if (!curVideo.paused) curVideo.pause(); });
-      curVideo.addEventListener('pause', () => { if (!refVideo.paused) refVideo.pause(); });
-    }
-
-    // 初期表示
+    // 初期化
     load_video_list();
     document.getElementById('device-select').value = CURRENT_DEVICE;
-    
     if (document.getElementById('chat-input')) {
       init_chat();
-      // 定期的にチャットボット状態をチェック
       setInterval(update_chatbot_status, 5000);
     }
-    
+
+    // --- 使用率更新 ---
     async function update_usage() {
       try {
         const res = await fetch('/system_usage');
         const data = await res.json();
-        // Ensure bars display correct metrics
         document.getElementById('cpu-bar').value = data.cpu;
         document.getElementById('gpu-bar').value = data.gpu;
         document.getElementById('npu-bar').value = data.npu;
         document.getElementById('cpu-text').textContent = `${data.cpu.toFixed(1)}%`;
         document.getElementById('gpu-text').textContent = `${data.gpu.toFixed(1)}%`;
         document.getElementById('npu-text').textContent = `${data.npu.toFixed(1)}%`;
-      } catch (e) {
-        // ignore errors
-      }
+      } catch (_) {}
     }
     setInterval(update_usage, 1000);
     update_usage();
