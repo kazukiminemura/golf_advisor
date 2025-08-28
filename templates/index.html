@@ -11,6 +11,17 @@
     .chat-input { display: flex; }
     .chat-input input { flex: 1; padding: 5px; }
     .chat-input button { margin-left: 5px; }
+    .chat-status { 
+      background: #f0f0f0; 
+      padding: 10px; 
+      margin-bottom: 10px; 
+      border-radius: 5px; 
+      text-align: center;
+      font-weight: bold;
+    }
+    .chat-status.preparing { background: #fff3cd; color: #856404; }
+    .chat-status.ready { background: #d4edda; color: #155724; }
+    .chat-status.error { background: #f8d7da; color: #721c24; }
     .video-wrapper { display: flex; }
     .video-item { position: relative; flex: 1; }
     .video-item video { width: 100%; display: block; }
@@ -70,10 +81,13 @@
   {% if chatbot_enabled %}
   <!-- チャット -->
   <div class="chat-container">
+    <div id="chat-status" class="chat-status preparing">
+      チャットボットは準備中です。まず動画を分析してください。
+    </div>
     <div id="chat-messages"></div>
     <div class="chat-input">
-      <input id="chat-input" type="text" placeholder="メッセージを入力..." />
-      <button id="send-btn">送信</button>
+      <input id="chat-input" type="text" placeholder="メッセージを入力..." disabled />
+      <button id="send-btn" disabled>送信</button>
     </div>
   </div>
   {% endif %}
@@ -83,31 +97,83 @@
     const CHATBOT_ENABLED = {{ 'true' if chatbot_enabled else 'false' }};
     const CURRENT_DEVICE = '{{ device }}';
 
+    let chatbotReady = false;
+
     if (CHATBOT_ENABLED) {
+      async function update_chatbot_status() {
+        try {
+          const res = await fetch('/chatbot_status');
+          const status = await res.json();
+          const statusDiv = document.getElementById('chat-status');
+          const chatInput = document.getElementById('chat-input');
+          const sendBtn = document.getElementById('send-btn');
+          
+          if (status.initialized) {
+            statusDiv.textContent = "チャットボットの準備ができました。";
+            statusDiv.className = "chat-status ready";
+            chatInput.disabled = false;
+            sendBtn.disabled = false;
+            chatInput.placeholder = "メッセージを入力...";
+            chatbotReady = true;
+          } else if (status.analysis_complete) {
+            statusDiv.textContent = "動画分析が完了しました。チャットボットの準備ができました！";
+            statusDiv.className = "chat-status ready";
+            chatInput.disabled = false;
+            sendBtn.disabled = false;
+            chatInput.placeholder = "メッセージを入力...";
+            chatbotReady = true;
+          } else {
+            statusDiv.textContent = "チャットボットは準備中です。まず動画を分析してください。";
+            statusDiv.className = "chat-status preparing";
+            chatInput.disabled = true;
+            sendBtn.disabled = true;
+            chatInput.placeholder = "分析を完了してください...";
+            chatbotReady = false;
+          }
+        } catch (e) {
+          const statusDiv = document.getElementById('chat-status');
+          statusDiv.textContent = "チャットボット状態の取得に失敗しました。";
+          statusDiv.className = "chat-status error";
+          chatbotReady = false;
+        }
+      }
+
       async function load_messages() {
-        const res = await fetch('/messages');
-        const msgs = await res.json();
-        const box = document.getElementById('chat-messages');
-        box.innerHTML = '';
-        msgs.forEach(m => {
-          const p = document.createElement('p');
-          const prefix = m.role === 'user' ? 'あなた: ' : 'コーチ: ';
-          p.textContent = prefix + m.content;
-          box.appendChild(p);
-        });
-        box.scrollTop = box.scrollHeight;
+        if (!chatbotReady) return;
+        
+        try {
+          const res = await fetch('/messages');
+          const msgs = await res.json();
+          const box = document.getElementById('chat-messages');
+          box.innerHTML = '';
+          msgs.forEach(m => {
+            const p = document.createElement('p');
+            const prefix = m.role === 'user' ? 'あなた: ' : 'コーチ: ';
+            p.textContent = prefix + m.content;
+            box.appendChild(p);
+          });
+          box.scrollTop = box.scrollHeight;
+        } catch (e) {
+          console.error('Failed to load messages:', e);
+        }
       }
 
       async function init_chat() {
-        try {
-          await fetch('/init_chatbot', { method: 'POST' });
-        } catch (e) {
-          // ignore
+        await update_chatbot_status();
+        if (chatbotReady) {
+          try {
+            await fetch('/init_chatbot', { method: 'POST' });
+            await update_chatbot_status();
+          } catch (e) {
+            console.error('Failed to initialize chatbot:', e);
+          }
+          await load_messages();
         }
-        await load_messages();
       }
 
       document.getElementById('send-btn').onclick = async () => {
+        if (!chatbotReady) return;
+        
         const input = document.getElementById('chat-input');
         const text = input.value.trim();
         if (!text) return;
@@ -121,6 +187,13 @@
 
         input.value = '';
 
+        // 送信中の表示
+        const loadingP = document.createElement('p');
+        loadingP.textContent = 'コーチ: 考え中...';
+        loadingP.style.opacity = '0.6';
+        box.appendChild(loadingP);
+        box.scrollTop = box.scrollHeight;
+
         try {
           const res = await fetch('/messages', {
             method: 'POST',
@@ -129,17 +202,32 @@
           });
           const data = await res.json();
 
+          // ローディング表示を削除
+          box.removeChild(loadingP);
+
           const coachP = document.createElement('p');
           coachP.textContent = 'コーチ: ' + data.reply;
           box.appendChild(coachP);
           box.scrollTop = box.scrollHeight;
         } catch (e) {
+          // ローディング表示を削除
+          box.removeChild(loadingP);
+          
           const errP = document.createElement('p');
           errP.textContent = 'コーチ: 返答の取得に失敗しました。';
+          errP.style.color = 'red';
           box.appendChild(errP);
           box.scrollTop = box.scrollHeight;
         }
       };
+
+      // Enterキーでメッセージ送信
+      document.getElementById('chat-input').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && chatbotReady) {
+          e.preventDefault();
+          document.getElementById('send-btn').click();
+        }
+      });
     }
 
     document.getElementById('process-btn').onclick = async () => {
@@ -170,19 +258,57 @@
 
       const status = document.getElementById('status');
       status.textContent = '解析中';
+      
+      // チャットボット状態を分析中に更新
+      if (CHATBOT_ENABLED) {
+        const statusDiv = document.getElementById('chat-status');
+        statusDiv.textContent = "動画分析中です。しばらくお待ちください...";
+        statusDiv.className = "chat-status preparing";
+        document.getElementById('chat-input').disabled = true;
+        document.getElementById('send-btn').disabled = true;
+        chatbotReady = false;
+      }
+      
       let dots = 0;
       const timer = setInterval(() => {
         dots = (dots + 1) % 4;
         status.textContent = '解析中' + '.'.repeat(dots);
       }, 500);
+      
       try {
-        await fetch('/analyze', { method: 'POST' });
+        const analyzeRes = await fetch('/analyze', { method: 'POST' });
+        const analyzeData = await analyzeRes.json();
+        
         clearInterval(timer);
-        status.textContent = '解析完了';
-        location.reload();
+        
+        if (analyzeData.error) {
+          status.textContent = '解析に失敗しました: ' + analyzeData.error;
+          if (CHATBOT_ENABLED) {
+            const statusDiv = document.getElementById('chat-status');
+            statusDiv.textContent = "分析に失敗しました。再度お試しください。";
+            statusDiv.className = "chat-status error";
+          }
+        } else {
+          status.textContent = '解析完了';
+          
+          // チャットボット状態を更新
+          if (CHATBOT_ENABLED) {
+            await update_chatbot_status();
+            await load_messages();
+          }
+          
+          // 結果がある場合はページをリロード（動画表示のため）
+          setTimeout(() => location.reload(), 1000);
+        }
       } catch (e) {
         clearInterval(timer);
         status.textContent = '解析に失敗しました。';
+        
+        if (CHATBOT_ENABLED) {
+          const statusDiv = document.getElementById('chat-status');
+          statusDiv.textContent = "分析中にエラーが発生しました。";
+          statusDiv.className = "chat-status error";
+        }
       }
     };
 
@@ -287,9 +413,13 @@
     // 初期表示
     load_video_list();
     document.getElementById('device-select').value = CURRENT_DEVICE;
+    
     if (CHATBOT_ENABLED) {
       init_chat();
+      // 定期的にチャットボット状態をチェック
+      setInterval(update_chatbot_status, 5000);
     }
+    
     async function update_usage() {
       try {
         const res = await fetch('/system_usage');

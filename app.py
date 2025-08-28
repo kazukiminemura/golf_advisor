@@ -383,12 +383,23 @@ def message_handler():
         # GET request - return conversation history or initialization message
         if bot is not None:
             return jsonify(messages)
-        return jsonify([
-            {
-                "role": "assistant",
-                "content": "チャットボットは準備中です。まず動画を分析してください。",
-            }
-        ])
+        else:
+            # Check if video analysis is complete but chatbot not initialized
+            analysis_complete = all(x is not None for x in [ref_keypoints, cur_keypoints, score])
+            if analysis_complete:
+                return jsonify([
+                    {
+                        "role": "assistant", 
+                        "content": "動画分析が完了しました。チャットボットの準備ができました！質問をどうぞ。"
+                    }
+                ])
+            else:
+                return jsonify([
+                    {
+                        "role": "assistant",
+                        "content": "チャットボットは準備中です。まず動画を分析してください。",
+                    }
+                ])
 
 
 @app.route("/videos/<path:filename>")
@@ -480,7 +491,7 @@ async def analyze():
         if score is None:
             return jsonify({"error": "動画分析に失敗しました。ログを確認してください。"}), 500
             
-        return jsonify({"score": score})  # Send back computed score
+        return jsonify({"score": score, "analysis_complete": True})  # Send back computed score with status
         
     except Exception as exc:
         app.logger.exception("Error during analysis: %s", exc)
@@ -499,7 +510,7 @@ async def init_chatbot_route():
     try:
         success = await init_chatbot()  # Initialize chatbot separately
         if success:
-            return jsonify({"status": "ok", "message": "チャットボットが初期化されました。"})
+            return jsonify({"status": "ok", "message": "チャットボットの準備ができました。"})
         else:
             return jsonify({"status": "error", "message": "チャットボットの初期化に失敗しました。"}), 400
     except Exception as exc:
@@ -545,10 +556,17 @@ def set_videos():
 @app.route("/chatbot_status")
 def chatbot_status():
     """Get current chatbot status."""
+    analysis_complete = all(x is not None for x in [ref_keypoints, cur_keypoints, score])
     return jsonify({
         "enabled": ENABLE_CHATBOT,
         "initialized": bot is not None,
-        "ready_to_init": all(x is not None for x in [ref_keypoints, cur_keypoints, score])
+        "ready_to_init": analysis_complete,
+        "analysis_complete": analysis_complete,
+        "status_message": (
+            "チャットボットの準備ができました。" if bot is not None 
+            else "動画分析が完了しました。チャットボットの準備ができました！" if analysis_complete
+            else "チャットボットは準備中です。まず動画を分析してください。"
+        )
     })
 
 
