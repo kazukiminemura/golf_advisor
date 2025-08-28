@@ -12,7 +12,7 @@ from golf_swing_compare import (
     compare_swings,
     draw_skeleton,
     extract_keypoints,
-    SwingChatBot,
+    EnhancedSwingChatBot,
 )
 from simple_chatbot import SimpleChatBot
 
@@ -175,7 +175,7 @@ def _init_chatbot_sync() -> bool:
     
     try:
         app.logger.info("Initializing chatbot with keypoints and score")
-        bot = SwingChatBot(ref_keypoints, cur_keypoints, score)
+        bot = EnhancedSwingChatBot(ref_keypoints, cur_keypoints, score)
         initial_msg = bot.initial_message()
         messages = [{"role": "assistant", "content": initial_msg}]
         app.logger.info("Chatbot initialized successfully")
