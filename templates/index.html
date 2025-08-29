@@ -472,24 +472,27 @@
         const res = await fetch('/system_usage');
         const data = await res.json();
 
-        document.getElementById('cpu-bar').value = data.cpu;
-        document.getElementById('gpu-bar').value = data.gpu;
+        const cpuUsage = data.cpu;
+        const gpuUsage = data.gpu;
+
+        document.getElementById('cpu-bar').value = cpuUsage;
+        document.getElementById('gpu-bar').value = gpuUsage;
         document.getElementById('npu-bar').value = data.npu;
         document.getElementById('mem-bar').value = data.memory_percent;
 
-        document.getElementById('cpu-text').textContent = `${data.cpu.toFixed(1)}%`;
-        document.getElementById('gpu-text').textContent = `${data.gpu.toFixed(1)}%`;
+        document.getElementById('cpu-text').textContent = `${cpuUsage.toFixed(1)}%`;
+        document.getElementById('gpu-text').textContent = `${gpuUsage.toFixed(1)}%`;
         document.getElementById('npu-text').textContent = `${data.npu.toFixed(1)}%`;
         document.getElementById('mem-text').textContent = `${data.memory_percent.toFixed(1)}%`;
         document.getElementById('mem-detail').textContent = `${data.memory_used_gb.toFixed(2)} / ${data.memory_total_gb.toFixed(2)} GB`;
 
-        document.getElementById('cpu-bar').style.setProperty('--bar-color', usageColor(data.cpu));
-        document.getElementById('gpu-bar').style.setProperty('--bar-color', usageColor(data.gpu));
+        document.getElementById('cpu-bar').style.setProperty('--bar-color', usageColor(cpuUsage));
+        document.getElementById('gpu-bar').style.setProperty('--bar-color', usageColor(gpuUsage));
         document.getElementById('npu-bar').style.setProperty('--bar-color', usageColor(data.npu));
         document.getElementById('mem-bar').style.setProperty('--bar-color', usageColor(data.memory_percent));
 
-        document.getElementById('cpu-text').style.color = usageColor(data.cpu);
-        document.getElementById('gpu-text').style.color = usageColor(data.gpu);
+        document.getElementById('cpu-text').style.color = usageColor(cpuUsage);
+        document.getElementById('gpu-text').style.color = usageColor(gpuUsage);
         document.getElementById('npu-text').style.color = usageColor(data.npu);
         document.getElementById('mem-text').style.color = usageColor(data.memory_percent);
       } catch (_) {}
