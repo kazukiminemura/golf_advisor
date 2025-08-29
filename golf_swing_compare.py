@@ -586,6 +586,38 @@ def draw_skeleton(frame, keypoints):
                 )
 
 
+def play_openpose_side_by_side(video_path: Path, keypoints) -> None:
+    """Display original and OpenPose-annotated videos simultaneously.
+
+    Args:
+        video_path (Path): Source video to read frames from.
+        keypoints (list): Per-frame keypoints returned by ``extract_keypoints``.
+    """
+    import cv2
+
+    cap = cv2.VideoCapture(str(video_path))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    frame_idx = 0
+
+    while cap.isOpened() and frame_idx < len(keypoints):
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        annotated = frame.copy()
+        draw_skeleton(annotated, keypoints[frame_idx])
+        combined = cv2.hconcat([frame, annotated])
+        cv2.imshow("OpenPose Result", combined)
+
+        if cv2.waitKey(int(1000 / fps)) & 0xFF == ord("q"):
+            break
+
+        frame_idx += 1
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
 def show_comparison_with_chat(
     ref_path: Path, test_path: Path, ref_kp, test_kp, score, start_paused: bool = False
 ):
@@ -808,6 +840,11 @@ def main():
         action="store_true",
         help="Show detailed analysis without video display",
     )
+    parser.add_argument(
+        "--show-openpose",
+        action="store_true",
+        help="Display each input video with OpenPose results side by side",
+    )
     
     args = parser.parse_args()
 
@@ -855,7 +892,11 @@ def main():
         sorted_diff = sorted(kp_diff.items(), key=lambda x: x[1], reverse=True)[:5]
         for i, (part, diff) in enumerate(sorted_diff, 1):
             print(f"  {i}. {part}: {diff:.4f}")
-        
+
+    if args.show_openpose:
+        play_openpose_side_by_side(Path(args.reference), ref_kp)
+        play_openpose_side_by_side(Path(args.test), test_kp)
+
     elif args.chat:
         print("🤖 AIコーチングシステムを起動します...")
         show_comparison_with_chat(
