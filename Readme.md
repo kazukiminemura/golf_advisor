@@ -61,7 +61,11 @@ A minimal Flask application displays reference and test videos next to a chat wi
 
 ### Enable the Chatbot in the Web App
 
-The chat panel uses the Qwen 8B model to provide golf swing tips in Japanese. Set the environment variable `CHATBOT_DEBUG=1` when launching `app.py` to receive echo responses for debugging.
+The chat panel uses the Qwen 8B model to provide golf swing tips in Japanese. Configure it with environment variables when starting `app.py`:
+
+- `ENABLE_CHATBOT=1` enables the swing coach chatbot and displays the chat panel. Without this variable the web app runs without the chatbot.
+- `LAZY_CHATBOT_INIT=0` initializes the chatbot immediately after video analysis; the default (`1`) waits until the first chat request to load the model.
+- `CHATBOT_DEBUG=1` returns echo responses for debugging.
 
 ## Simple Web Chatbot
 
