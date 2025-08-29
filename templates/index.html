@@ -2,6 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>チャット & 動画</title>
   <style>
     body { display: flex; height: 100vh; margin: 0; }
@@ -11,11 +12,11 @@
     .chat-input { display: flex; }
     .chat-input input { flex: 1; padding: 5px; }
     .chat-input button { margin-left: 5px; }
-    .chat-status { 
-      background: #f0f0f0; 
-      padding: 10px; 
-      margin-bottom: 10px; 
-      border-radius: 5px; 
+    .chat-status {
+      background: #f0f0f0;
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 5px;
       text-align: center;
       font-weight: bold;
     }
@@ -30,7 +31,18 @@
     .file-select select { width: 45%; margin-right: 5px; }
     .file-select input[type="file"] { width: 45%; margin-right: 5px; }
     #usage div { margin-bottom: 4px; }
-    #usage progress { width: 60%; }
+    #usage progress {
+      width: 60%;
+      height: 20px;
+      --bar-color: green;
+    }
+    #usage progress::-webkit-progress-value { background-color: var(--bar-color); }
+    #usage progress::-moz-progress-bar { background-color: var(--bar-color); }
+    @media (max-width: 768px) {
+      body { flex-direction: column; height: auto; }
+      .video-container, .chat-container { width: 100%; }
+      #usage progress { width: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -56,6 +68,7 @@
       <div>CPU: <progress id="cpu-bar" max="100" value="0"></progress> <span id="cpu-text">0%</span></div>
       <div>GPU: <progress id="gpu-bar" max="100" value="0"></progress> <span id="gpu-text">0%</span></div>
       <div>NPU: <progress id="npu-bar" max="100" value="0"></progress> <span id="npu-text">0%</span></div>
+      <div>メモリ: <progress id="mem-bar" max="100" value="0"></progress> <span id="mem-text">0%</span> <span id="mem-detail"></span></div>
     </div>
     {% if has_results %}
     <p>差分スコア: {{ "%.4f"|format(score) }}</p>
@@ -328,16 +341,38 @@
     }
 
     // --- 使用率更新 ---
+    function usageColor(v) {
+      if (v < 25) return 'green';
+      if (v < 50) return 'blue';
+      if (v < 75) return 'yellow';
+      return 'red';
+    }
+
     async function update_usage() {
       try {
         const res = await fetch('/system_usage');
         const data = await res.json();
+
         document.getElementById('cpu-bar').value = data.cpu;
         document.getElementById('gpu-bar').value = data.gpu;
         document.getElementById('npu-bar').value = data.npu;
+        document.getElementById('mem-bar').value = data.memory_percent;
+
         document.getElementById('cpu-text').textContent = `${data.cpu.toFixed(1)}%`;
         document.getElementById('gpu-text').textContent = `${data.gpu.toFixed(1)}%`;
         document.getElementById('npu-text').textContent = `${data.npu.toFixed(1)}%`;
+        document.getElementById('mem-text').textContent = `${data.memory_percent.toFixed(1)}%`;
+        document.getElementById('mem-detail').textContent = `${data.memory_used_gb.toFixed(2)} / ${data.memory_total_gb.toFixed(2)} GB`;
+
+        document.getElementById('cpu-bar').style.setProperty('--bar-color', usageColor(data.cpu));
+        document.getElementById('gpu-bar').style.setProperty('--bar-color', usageColor(data.gpu));
+        document.getElementById('npu-bar').style.setProperty('--bar-color', usageColor(data.npu));
+        document.getElementById('mem-bar').style.setProperty('--bar-color', usageColor(data.memory_percent));
+
+        document.getElementById('cpu-text').style.color = usageColor(data.cpu);
+        document.getElementById('gpu-text').style.color = usageColor(data.gpu);
+        document.getElementById('npu-text').style.color = usageColor(data.npu);
+        document.getElementById('mem-text').style.color = usageColor(data.memory_percent);
       } catch (_) {}
     }
     setInterval(update_usage, 1000);
