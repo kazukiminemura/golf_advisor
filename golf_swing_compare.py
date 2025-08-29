@@ -3,6 +3,10 @@ from pathlib import Path
 import torch
 import numpy as np
 
+# Multiplier to penalize swing differences more heavily.
+# Higher values result in stricter scoring for deviations.
+STRICTNESS_FACTOR = 2.0
+
 
 def load_model(model_xml: str, device: str = "CPU"):
     """Load an OpenVINO pose estimation model."""
@@ -72,7 +76,7 @@ def compare_swings(ref_kp, test_kp):
         test = np.array([p[:2] for p in test_kp[i]])
         diff += np.linalg.norm(ref - test) / ref.size
     diff /= length
-    return float(np.exp(-diff))
+    return float(np.exp(-diff * STRICTNESS_FACTOR))
 
 
 def analyze_differences(ref_kp, test_kp):
@@ -148,7 +152,9 @@ class GolfSwingAnalyzer:
                 phase_diff += np.linalg.norm(ref - test) / ref.size
                 frame_count += 1
             avg_diff = phase_diff / max(frame_count, 1)
-            phase_scores[phase_name] = float(np.exp(-avg_diff))
+            phase_scores[phase_name] = float(
+                np.exp(-avg_diff * STRICTNESS_FACTOR)
+            )
 
         return phase_scores
     
