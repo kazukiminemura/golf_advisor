@@ -548,18 +548,42 @@ POSE_PAIRS = [
 
 
 def draw_skeleton(frame, keypoints):
-    """Draw detected keypoints and skeleton on a frame."""
+    """Draw detected keypoints and skeleton on a frame.
+
+    This function now accepts keypoints either in pixel coordinates or
+    normalized coordinates (0-1). When normalized coordinates are
+    provided, they are scaled to the frame size internally. This makes
+    the function robust to different keypoint formats and fixes issues
+    where joints were not rendered due to mismatched scales.
+    """
     import cv2
 
-    for x, y, conf in keypoints:
+    height, width = frame.shape[:2]
+
+    def _scale(pt):
+        x, y, conf = pt
+        if x <= 1.0 and y <= 1.0:
+            # Assume normalized coordinates
+            return x * width, y * height, conf
+        return x, y, conf
+
+    scaled_kp = [_scale(p) for p in keypoints]
+
+    for x, y, conf in scaled_kp:
         if conf > 0.3:
-            cv2.circle(frame, (int(x), int(y)), 3, (0, 255, 0), -1)
+            cv2.circle(frame, (int(x), int(y)), 4, (0, 255, 0), -1)
     for a, b in POSE_PAIRS:
-        if a < len(keypoints) and b < len(keypoints):
-            x1, y1, c1 = keypoints[a]
-            x2, y2, c2 = keypoints[b]
+        if a < len(scaled_kp) and b < len(scaled_kp):
+            x1, y1, c1 = scaled_kp[a]
+            x2, y2, c2 = scaled_kp[b]
             if c1 > 0.3 and c2 > 0.3:
-                cv2.line(frame, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
+                cv2.line(
+                    frame,
+                    (int(x1), int(y1)),
+                    (int(x2), int(y2)),
+                    (255, 0, 0),
+                    2,
+                )
 
 
 def show_comparison_with_chat(
