@@ -65,13 +65,14 @@ def compare_swings(ref_kp, test_kp):
 
     length = min(len(ref_kp), len(test_kp))
     if length == 0:
-        return float("inf")
+        return 0.0
     diff = 0.0
     for i in range(length):
         ref = np.array([p[:2] for p in ref_kp[i]])
         test = np.array([p[:2] for p in test_kp[i]])
         diff += np.linalg.norm(ref - test) / ref.size
-    return diff / length
+    diff /= length
+    return float(np.exp(-diff))
 
 
 def analyze_differences(ref_kp, test_kp):
@@ -146,8 +147,9 @@ class GolfSwingAnalyzer:
                 test = np.array([p[:2] for p in self.test_kp[i]])
                 phase_diff += np.linalg.norm(ref - test) / ref.size
                 frame_count += 1
-            phase_scores[phase_name] = phase_diff / max(frame_count, 1)
-        
+            avg_diff = phase_diff / max(frame_count, 1)
+            phase_scores[phase_name] = float(np.exp(-avg_diff))
+
         return phase_scores
     
     def _analyze_posture(self):
@@ -247,7 +249,7 @@ class EnhancedSwingChatBot:
 🏌️ ゴルフスイング解析が完了しました！
 
 📊 総合評価スコア: {self.score:.3f}
-{'優秀' if self.score < 0.1 else '良好' if self.score < 0.2 else '要改善'}
+{'優秀' if self.score > 0.9 else '良好' if self.score > 0.8 else '要改善'}
 
 📈 フェーズ別スコア:
 • アドレス: {self.analysis['swing_phases']['address']:.3f}
@@ -418,7 +420,7 @@ class EnhancedSwingChatBot:
     def _provide_improvement_advice(self):
         """Provide specific improvement recommendations."""
         phases = self.analysis['swing_phases']
-        worst_phase = max(phases.items(), key=lambda x: x[1])
+        worst_phase = min(phases.items(), key=lambda x: x[1])
         
         advice_map = {
             'address': '構えでは、足幅と重心配分を意識してください。',
@@ -438,7 +440,7 @@ class EnhancedSwingChatBot:
 3. ミラーを使った姿勢チェック
 
 📝 短期目標:
-• 総合スコア {max(0, self.score - 0.05):.3f} を目指しましょう
+• 総合スコア {min(1, self.score + 0.05):.3f} を目指しましょう
 • {worst_phase[0]}フェーズの改善に集中
 
 🏌️ 次回の練習で特に意識するポイントをお伝えしますか？
@@ -451,7 +453,7 @@ class EnhancedSwingChatBot:
 🏌️ アドレス解析:
 
 📊 アドレススコア: {address_score:.3f}
-評価: {'優秀' if address_score < 0.1 else '良好' if address_score < 0.15 else '要改善'}
+評価: {'優秀' if address_score > 0.90 else '良好' if address_score > 0.86 else '要改善'}
 
 💡 アドレスのポイント:
 • 足幅は肩幅程度
@@ -459,7 +461,7 @@ class EnhancedSwingChatBot:
 • 背筋を真っ直ぐ保つ
 • ボールとの距離を一定に
 
-{f'アドレスが安定しています。' if address_score < 0.12 else
+{f'アドレスが安定しています。' if address_score > 0.88 else
  'アドレスでの基本姿勢を見直してみましょう。'}
         """
     
@@ -470,7 +472,7 @@ class EnhancedSwingChatBot:
 🔄 バックスイング解析:
 
 📊 バックスイングスコア: {backswing_score:.3f}
-評価: {'優秀' if backswing_score < 0.15 else '良好' if backswing_score < 0.25 else '要改善'}
+評価: {'優秀' if backswing_score > 0.86 else '良好' if backswing_score > 0.78 else '要改善'}
 
 🎯 バックスイングのキーポイント:
 • 肩の十分な回転（90度以上）
@@ -478,7 +480,7 @@ class EnhancedSwingChatBot:
 • 手首のコック
 • 重心の右足移動
 
-{f'バックスイングが安定しています。' if backswing_score < 0.2 else
+{f'バックスイングが安定しています。' if backswing_score > 0.82 else
  'バックスイングでの体の回転をもっと意識してみましょう。'}
         """
     
@@ -489,7 +491,7 @@ class EnhancedSwingChatBot:
 ⚡ ダウンスイング解析:
 
 📊 ダウンスイングスコア: {downswing_score:.3f}
-評価: {'優秀' if downswing_score < 0.15 else '良好' if downswing_score < 0.25 else '要改善'}
+評価: {'優秀' if downswing_score > 0.86 else '良好' if downswing_score > 0.78 else '要改善'}
 
 🎯 ダウンスイングの重要ポイント:
 • 下半身主導の始動
@@ -497,7 +499,7 @@ class EnhancedSwingChatBot:
 • ハンドファーストでのインパクト
 • 重心の左足移動
 
-{f'ダウンスイングが理想的です。' if downswing_score < 0.2 else
+{f'ダウンスイングが理想的です。' if downswing_score > 0.82 else
  '下半身主導のダウンスイングを意識してみてください。'}
         """
     
@@ -508,7 +510,7 @@ class EnhancedSwingChatBot:
 🎊 フォロースルー解析:
 
 📊 フォロースルースコア: {followthrough_score:.3f}
-評価: {'優秀' if followthrough_score < 0.15 else '良好' if followthrough_score < 0.25 else '要改善'}
+評価: {'優秀' if followthrough_score > 0.86 else '良好' if followthrough_score > 0.78 else '要改善'}
 
 🎯 フォロースルーのポイント:
 • 最後まで振り切る
@@ -516,7 +518,7 @@ class EnhancedSwingChatBot:
 • バランスの良いフィニッシュ
 • 目標方向への体の向き
 
-{f'フォロースルーが素晴らしいです。' if followthrough_score < 0.2 else
+{f'フォロースルーが素晴らしいです。' if followthrough_score > 0.82 else
  'もっと大きく振り切ることを意識してみましょう。'}
         """
     
@@ -800,7 +802,7 @@ def main():
     
     print(f"\n🎯 解析結果:")
     print(f"総合スコア: {score:.4f}")
-    print(f"評価: {'優秀' if score < 0.1 else '良好' if score < 0.2 else '要改善'}")
+    print(f"評価: {'優秀' if score > 0.9 else '良好' if score > 0.8 else '要改善'}")
     
     if args.analysis_only:
         # Display detailed analysis in console
