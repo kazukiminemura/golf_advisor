@@ -109,8 +109,83 @@
     const HAS_RESULTS = {{ 'true' if has_results else 'false' }};
     const CHATBOT_ENABLED = {{ 'true' if chatbot_enabled else 'false' }};
     const CURRENT_DEVICE = '{{ device }}';
+    const REF_KP_URL = '{{ url_for('static', filename=ref_kp_name) }}';
+    const CUR_KP_URL = '{{ url_for('static', filename=cur_kp_name) }}';
 
     let chatbotReady = false;
+
+    // --- OpenPose skeleton drawing ---
+    const POSE_PAIRS = [
+      [1, 2], [2, 3], [3, 4], [1, 5], [5, 6], [6, 7],
+      [1, 8], [8, 9], [9, 10], [8, 12], [12, 13], [13, 14],
+      [0, 1], [0, 15], [15, 17], [0, 16], [16, 18]
+    ];
+
+    function drawSkeleton(ctx, keypoints, w, h) {
+      ctx.clearRect(0, 0, w, h);
+      keypoints.forEach(([x, y, c]) => {
+        if (c > 0.3) {
+          ctx.beginPath();
+          ctx.arc(x * w, y * h, 4, 0, 2 * Math.PI);
+          ctx.fillStyle = 'rgb(0,255,0)';
+          ctx.fill();
+        }
+      });
+      POSE_PAIRS.forEach(([a, b]) => {
+        if (a < keypoints.length && b < keypoints.length) {
+          const [x1, y1, c1] = keypoints[a];
+          const [x2, y2, c2] = keypoints[b];
+          if (c1 > 0.3 && c2 > 0.3) {
+            ctx.beginPath();
+            ctx.moveTo(x1 * w, y1 * h);
+            ctx.lineTo(x2 * w, y2 * h);
+            ctx.strokeStyle = 'rgb(255,0,0)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+        }
+      });
+    }
+
+    async function setupCanvas(videoId, canvasId, jsonUrl) {
+      try {
+        const res = await fetch(jsonUrl);
+        const data = await res.json();
+        const fps = data.fps || 30;
+        const kps = data.keypoints || [];
+        const video = document.getElementById(videoId);
+        const canvas = document.getElementById(canvasId);
+        const ctx = canvas.getContext('2d');
+
+        video.addEventListener('loadedmetadata', () => {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+        });
+
+        let reqId;
+        function render() {
+          if (video.paused || video.ended) return;
+          const idx = Math.min(Math.floor(video.currentTime * fps), kps.length - 1);
+          if (idx >= 0) {
+            drawSkeleton(ctx, kps[idx], canvas.width, canvas.height);
+          }
+          reqId = requestAnimationFrame(render);
+        }
+
+        video.addEventListener('play', () => {
+          reqId = requestAnimationFrame(render);
+        });
+        video.addEventListener('pause', () => cancelAnimationFrame(reqId));
+        video.addEventListener('seeked', () => {
+          const idx = Math.min(Math.floor(video.currentTime * fps), kps.length - 1);
+          if (idx >= 0) {
+            drawSkeleton(ctx, kps[idx], canvas.width, canvas.height);
+          }
+        });
+      } catch (e) {
+        console.error('Failed to load keypoints:', e);
+      }
+    }
 
     // --- チャットボット状態更新 ---
     async function update_chatbot_status() {
@@ -335,6 +410,10 @@
     // 初期化
     load_video_list();
     document.getElementById('device-select').value = CURRENT_DEVICE;
+    if (HAS_RESULTS) {
+      setupCanvas('ref-video', 'ref-canvas', REF_KP_URL);
+      setupCanvas('cur-video', 'cur-canvas', CUR_KP_URL);
+    }
     if (document.getElementById('chat-input')) {
       init_chat();
       setInterval(update_chatbot_status, 5000);
