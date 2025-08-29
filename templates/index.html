@@ -345,11 +345,11 @@
       });
 
       const status = document.getElementById('status');
-      status.textContent = '解析中';
+      status.textContent = '動画解析中です。完了までお待ちください';
       
       if (CHATBOT_ENABLED) {
         const statusDiv = document.getElementById('chat-status');
-        statusDiv.textContent = "動画分析中です。しばらくお待ちください...";
+        statusDiv.textContent = "動画解析中です。完了までお待ちください...";
         statusDiv.className = "chat-status preparing";
         document.getElementById('chat-input').disabled = true;
         document.getElementById('send-btn').disabled = true;
@@ -359,7 +359,7 @@
       let dots = 0;
       const timer = setInterval(() => {
         dots = (dots + 1) % 4;
-        status.textContent = '解析中' + '.'.repeat(dots);
+        status.textContent = '動画解析中です。完了までお待ちください' + '.'.repeat(dots);
       }, 500);
 
       let analyzeData = null;
@@ -379,7 +379,7 @@
       }
 
       // ✅ 成功時: フロント側で強制的に完了状態へ
-      status.textContent = '解析完了';
+      status.textContent = '動画解析が完了しました';
       if (CHATBOT_ENABLED) {
         const statusDiv = document.getElementById('chat-status');
         const chatInput = document.getElementById('chat-input');
