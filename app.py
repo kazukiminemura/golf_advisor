@@ -319,6 +319,8 @@ def index():
         score=score,
         ref_video_name=REF_VIDEO.name,
         cur_video_name=CUR_VIDEO.name,
+        ref_kp_name=REF_KP_JSON.name,
+        cur_kp_name=CUR_KP_JSON.name,
         has_results=has_results,
         chatbot_enabled=ENABLE_CHATBOT,
         device=DEVICE,
