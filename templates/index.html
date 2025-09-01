@@ -27,6 +27,21 @@
     .video-item { position: relative; flex: 1; }
     .video-item video { width: 100%; display: block; }
     .video-item canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+    .video-item.pro video { border: 4px solid #ffd700; }
+    .video-item.target video { border: 4px solid #00bfff; }
+    .video-item.pro::before,
+    .video-item.target::before {
+      position: absolute;
+      top: 5px;
+      left: 5px;
+      padding: 2px 5px;
+      color: #fff;
+      border-radius: 3px;
+      font-weight: bold;
+      z-index: 1;
+    }
+    .video-item.pro::before { content: 'プロ'; background: rgba(255, 215, 0, 0.8); }
+    .video-item.target::before { content: '対象'; background: rgba(30, 144, 255, 0.8); }
     .file-select { margin-bottom: 10px; }
     .file-select select { width: 45%; margin-right: 5px; }
     .file-select input[type="file"] {
@@ -56,7 +71,7 @@
   <!-- 動画 -->
   <div class="video-container">
     <div class="file-select">
-      <label for="ref-upload">参照</label>
+      <label for="ref-upload">プロ</label>
       <input id="ref-upload" type="file" accept="video/mp4" />
       <select id="ref-file"></select>
       <br />
@@ -87,14 +102,14 @@
       <button id="stop-both-btn">停止</button>
     </div>
     <div class="video-wrapper">
-      <div class="video-item">
+      <div class="video-item pro">
         <video id="ref-video" controls loop>
           <source src="{{ url_for('serve_video', filename=ref_video_name) }}" type="video/mp4">
           お使いのブラウザは動画再生に対応していません。
         </video>
         <canvas id="ref-canvas"></canvas>
       </div>
-      <div class="video-item">
+      <div class="video-item target">
         <video id="cur-video" controls loop>
           <source src="{{ url_for('serve_video', filename=cur_video_name) }}" type="video/mp4">
           お使いのブラウザは動画再生に対応していません。
