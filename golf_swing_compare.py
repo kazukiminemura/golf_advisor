@@ -465,13 +465,16 @@ class EnhancedSwingChatBot:
             f" • ダウンスイング: {phases.get('downswing', 0.0):.3f}\n"
             f" • フォロースルー: {phases.get('follow_through', 0.0):.3f}"
         )
+        advice = self._generate_advice()
+        full = f"{base}\n\n📋 アドバイス:\n{advice}"
         try:
-            # Let the simple chatbot rephrase the summary for a more natural tone
+            # Let the simple chatbot rephrase the summary but keep score first
             return self._simple_bot.ask(
-                "以下のゴルフスイング解析結果を分かりやすい文章で伝えてください:\n" + base
+                "以下のスコアとアドバイスをこの順番で分かりやすく伝えてください。スコアを先に、続いてアドバイスを述べてください:\n"
+                + full
             )
         except Exception:
-            return base
+            return full
 
     def _generate_advice(self) -> str:
         phases = self.analysis.get("swing_phases", {})
