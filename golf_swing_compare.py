@@ -1,105 +1,166 @@
 import argparse
 from pathlib import Path
+from typing import Dict, List, Sequence, Tuple
+import math
 import torch
 import numpy as np
 
-# Multiplier to penalize swing differences more heavily.
-# Higher values result in stricter scoring for deviations.
-STRICTNESS_FACTOR = 2.0
+# Scoring parameters (stricter)
+STRICTNESS_FACTOR = 4.0
+MISSING_CONF = 0.20
+MISSING_PENALTY = 0.20
+ANGLE_SCALE = 0.75
+
+# Per-keypoint importance (golf-relevant joints heavier)
+KEYPOINT_WEIGHTS: Dict[int, float] = {
+    # 0:nose, 1:neck, 2:r_sho, 3:r_elb, 4:r_wri, 5:l_sho, 6:l_elb, 7:l_wri,
+    # 8:mid_hip, 9:r_hip, 10:r_knee, 11:r_ankle, 12:l_hip, 13:l_knee, 14:l_ankle
+    1: 1.2,
+    2: 1.2, 3: 1.4, 4: 1.6,
+    5: 1.2, 6: 1.4, 7: 1.6,
+    8: 1.5, 9: 1.2, 12: 1.2,
+    10: 0.8, 11: 0.6, 13: 0.8, 14: 0.6,
+}
+DEFAULT_KP_WEIGHT = 0.8
+
+Point = Tuple[float, float, float]
+Frame = Sequence[Point]
 
 
-def load_model(model_xml: str, device: str = "CPU"):
-    """Load an OpenVINO pose estimation model."""
-    from openvino.runtime import Core
-
-    core = Core()
-    model = core.read_model(model=model_xml)
-    compiled_model = core.compile_model(model=model, device_name=device)
-    output_layer = compiled_model.output(0)
-    return compiled_model, output_layer
+def _kp_weight(idx: int) -> float:
+    return KEYPOINT_WEIGHTS.get(idx, DEFAULT_KP_WEIGHT)
 
 
-def preprocess(frame, input_shape):
-    import cv2
-    import numpy as np
-
-    _, _, h, w = input_shape
-    image = cv2.resize(frame, (w, h))
-    image = image.transpose((2, 0, 1))
-    image = image[np.newaxis, :]
-    return image
+def _to_np_xy(frame: Frame) -> np.ndarray:
+    return np.array([[p[0], p[1]] for p in frame], dtype=np.float32)
 
 
-def postprocess(results):
-    import cv2
-    import numpy as np
-
-    heatmaps = np.squeeze(results, axis=0)
-    points = []
-    num_kp = heatmaps.shape[0]
-    for i in range(num_kp):
-        heatmap = heatmaps[i]
-        _, conf, _, point = cv2.minMaxLoc(heatmap)
-        x = point[0] / heatmap.shape[1]
-        y = point[1] / heatmap.shape[0]
-        points.append((x, y, conf))
-    return points
+def _conf(frame: Frame) -> np.ndarray:
+    return np.array([p[2] if len(p) > 2 else 1.0 for p in frame], dtype=np.float32)
 
 
-def extract_keypoints(video_path: Path, model_xml: str, device: str):
-    import cv2
+def _bbox_scale_and_center(frame: Frame) -> Tuple[np.ndarray, float, np.ndarray]:
+    pts = _to_np_xy(frame)
+    conf = _conf(frame)
+    L_SHO, R_SHO, L_HIP, R_HIP = 5, 2, 12, 9
+    anchors = [L_SHO, R_SHO, L_HIP, R_HIP]
+    if all(conf[i] > MISSING_CONF for i in anchors):
+        sel = pts[anchors]
+    else:
+        sel = pts
+    min_xy = sel.min(axis=0)
+    max_xy = sel.max(axis=0)
+    center = (min_xy + max_xy) / 2.0
+    wh = max(max_xy[0] - min_xy[0], max_xy[1] - min_xy[1])
+    scale = max(wh, 1e-6)
+    return pts, scale, center
 
-    cap = cv2.VideoCapture(str(video_path))
-    compiled_model, output_layer = load_model(model_xml, device)
-    keypoints = []
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        inp = preprocess(frame, compiled_model.input(0).shape)
-        results = compiled_model([inp])[output_layer]
-        points = postprocess(results)
-        keypoints.append(points)
-    cap.release()
-    return keypoints
+
+def _normalize(frame: Frame) -> Tuple[np.ndarray, np.ndarray]:
+    pts, scale, center = _bbox_scale_and_center(frame)
+    norm = (pts - center) / scale
+    return norm, _conf(frame)
+
+
+def _angle(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
+    v1 = a - b
+    v2 = c - b
+    n1 = np.linalg.norm(v1) + 1e-9
+    n2 = np.linalg.norm(v2) + 1e-9
+    cos = np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0)
+    return float(math.acos(cos))
+
+
+def _safe_idx(frame: Frame, idx: int) -> bool:
+    return idx < len(frame)
+
+
+# OpenPose keypoint extraction
+from openpose_extractor import extract_keypoints
+
+
+def frame_difference(ref: Frame, test: Frame) -> float:
+    """Per-frame difference with position, angle, and missing penalties."""
+    ref_xy, ref_conf = _normalize(ref)
+    test_xy, test_conf = _normalize(test)
+    n = min(len(ref_xy), len(test_xy))
+    pos_sum = 0.0
+    weight_sum = 0.0
+    missing = 0.0
+    for i in range(n):
+        w = _kp_weight(i)
+        if ref_conf[i] <= MISSING_CONF or test_conf[i] <= MISSING_CONF:
+            missing += MISSING_PENALTY * w
+            continue
+        d = np.linalg.norm(ref_xy[i] - test_xy[i])
+        pos_sum += w * d
+        weight_sum += w
+    pos = pos_sum / max(weight_sum, 1e-9)
+
+    # Angle penalties (elbows and knees)
+    angle_pairs = [
+        (2, 3, 4), (5, 6, 7),
+        (9, 10, 11), (12, 13, 14),
+    ]
+    ang = 0.0
+    for a, b, c in angle_pairs:
+        if all(_safe_idx(ref, idx) and _safe_idx(test, idx) for idx in (a, b, c)):
+            if all(ref_conf[idx] > MISSING_CONF and test_conf[idx] > MISSING_CONF for idx in (a, b, c)):
+                ang_ref = _angle(ref_xy[a], ref_xy[b], ref_xy[c])
+                ang_test = _angle(test_xy[a], test_xy[b], test_xy[c])
+                ang += abs(ang_ref - ang_test)
+    ang *= ANGLE_SCALE
+
+    # Spine tilt difference
+    if all(_safe_idx(ref, idx) and _safe_idx(test, idx) for idx in (8, 1)):
+        if ref_conf[8] > MISSING_CONF and ref_conf[1] > MISSING_CONF and test_conf[8] > MISSING_CONF and test_conf[1] > MISSING_CONF:
+            ref_tilt = _angle(ref_xy[8], ref_xy[1], ref_xy[8] + np.array([0, 1]))
+            test_tilt = _angle(test_xy[8], test_xy[1], test_xy[8] + np.array([0, 1]))
+            ang += abs(ref_tilt - test_tilt)
+
+    # Pelvis sway penalty (horizontal displacement of mid hip)
+    pelvis = 0.0
+    if _safe_idx(ref, 8) and _safe_idx(test, 8):
+        if ref_conf[8] > MISSING_CONF and test_conf[8] > MISSING_CONF:
+            pelvis = abs(ref_xy[8][0] - test_xy[8][0])
+
+    return pos + ang + missing + pelvis
 
 
 def compare_swings(ref_kp, test_kp):
-    import numpy as np
-
     length = min(len(ref_kp), len(test_kp))
     if length == 0:
         return 0.0
-    diff = 0.0
+    total = 0.0
     for i in range(length):
-        ref = np.array([p[:2] for p in ref_kp[i]])
-        test = np.array([p[:2] for p in test_kp[i]])
-        diff += np.linalg.norm(ref - test) / ref.size
-    diff /= length
-    return float(np.exp(-diff * STRICTNESS_FACTOR))
+        total += frame_difference(ref_kp[i], test_kp[i])
+    avg = total / length
+    return float(math.exp(-STRICTNESS_FACTOR * avg))
 
 
 def analyze_differences(ref_kp, test_kp):
     """Compute average per-keypoint differences between two swings."""
-    import numpy as np
-
     length = min(len(ref_kp), len(test_kp))
     if length == 0:
         return {}
     num_kp = min(len(ref_kp[0]), len(test_kp[0]))
-    diff_sum = np.zeros(num_kp)
+    diff_sum = np.zeros(num_kp, dtype=np.float32)
+    counts = np.zeros(num_kp, dtype=np.float32)
     for i in range(length):
-        ref = np.array([p[:2] for p in ref_kp[i][:num_kp]])
-        test = np.array([p[:2] for p in test_kp[i][:num_kp]])
-        diff_sum += np.linalg.norm(ref - test, axis=1)
-    diff_avg = diff_sum / length
+        ref_xy, ref_conf = _normalize(ref_kp[i])
+        test_xy, test_conf = _normalize(test_kp[i])
+        for j in range(num_kp):
+            if ref_conf[j] > MISSING_CONF and test_conf[j] > MISSING_CONF:
+                diff_sum[j] += np.linalg.norm(ref_xy[j] - test_xy[j])
+                counts[j] += 1.0
+    diff_avg = np.divide(diff_sum, counts, out=np.zeros_like(diff_sum), where=counts > 0)
     names = {
         0: "nose", 1: "neck", 2: "right shoulder", 3: "right elbow", 4: "right wrist",
         5: "left shoulder", 6: "left elbow", 7: "left wrist", 8: "mid hip",
         9: "right hip", 10: "right knee", 11: "right ankle",
         12: "left hip", 13: "left knee", 14: "left ankle"
     }
-    return {names.get(i, str(i)): diff_avg[i] for i in range(num_kp)}
+    return {names.get(i, str(i)): float(diff_avg[i]) for i in range(num_kp)}
 
 
 class GolfSwingAnalyzer:
