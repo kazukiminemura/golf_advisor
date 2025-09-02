@@ -346,7 +346,7 @@
         box.scrollTop = box.scrollHeight;
       };
 
-      document.getElementById('chat-input').addEventListener('keypress', (e) => {
+      document.getElementById('chat-input').addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey && chatbotReady) {
           e.preventDefault();
           document.getElementById('send-btn').click();
