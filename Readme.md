@@ -1,6 +1,6 @@
 # Golf Swing Comparator
 
-This project compares two golf swing videos with OpenVINO and provides optional web and chatbot features.
+This project compares two golf swing videos with OpenVINO and includes a web interface with a chatbot enabled by default.
 
 ## Requirements
 
@@ -59,11 +59,11 @@ A minimal FastAPI application displays reference and test videos next to a chat 
    ```
 4. Open `http://localhost:8000/` in your browser.
 
-### Enable the Chatbot in the Web App
+### Chatbot in the Web App
 
-The chat panel uses the Qwen 8B model to provide golf swing tips in Japanese. Configure it with environment variables when starting `app.py`:
+The chat panel is enabled by default and uses the Qwen 8B model to provide golf swing tips in Japanese. Configure it with environment variables when starting `app.py`:
 
-- `ENABLE_CHATBOT=1` enables the swing coach chatbot and displays the chat panel. Without this variable the web app runs without the chatbot.
+- `ENABLE_CHATBOT=0` disables the swing coach chatbot and hides the chat panel.
 - `LAZY_CHATBOT_INIT=0` initializes the chatbot immediately after video analysis; the default (`1`) waits until the first chat request to load the model.
 - `CHATBOT_DEBUG=1` returns echo responses for debugging.
 
