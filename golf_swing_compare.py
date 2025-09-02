@@ -395,6 +395,10 @@ class GolfSwingAnalyzer:
     def _perform_analysis(self) -> Dict[str, object]:
         length = min(len(self.ref_kp), len(self.test_kp))
         score, phase_scores = compare_swings(self.ref_kp, self.test_kp)
+        swing_phases = {
+            k: phase_scores.get(k, 0.0)
+            for k in ("address", "backswing", "downswing", "follow_through")
+        }
 
         spine_ref: List[float] = []
         spine_tst: List[float] = []
@@ -412,6 +416,7 @@ class GolfSwingAnalyzer:
         result = {
             "overall_score": score,
             "phase_scores": phase_scores,
+            "swing_phases": swing_phases,
             "keypoint_differences": analyze_differences(self.ref_kp, self.test_kp),
             "posture_analysis": {
                 "spine_angle_difference": float(np.mean(np.abs(spine_ref - spine_tst))),
@@ -424,6 +429,13 @@ class GolfSwingAnalyzer:
 class EnhancedSwingChatBot:
     """Minimal conversational stub that reports swing quality."""
 
+    PHASE_JP = {
+        "address": "アドレス",
+        "backswing": "バックスイング",
+        "downswing": "ダウンスイング",
+        "follow_through": "フォロースルー",
+    }
+
     def __init__(self, ref_kp, test_kp, score: float | None = None):
         self.analyzer = GolfSwingAnalyzer(ref_kp, test_kp)
         self.score = score if score is not None else self.analyzer.analysis_results["overall_score"]
@@ -432,13 +444,32 @@ class EnhancedSwingChatBot:
     def initial_message(self) -> str:
         s = self.score
         band = "優秀" if s > 90.0 else ("良好" if s > 80.0 else "要改善")
+        phases = self.analysis.get("swing_phases", {})
         return (
             f"🏌️ 解析完了  総合スコア: {s:.1f}/100  評価: {band}\n"
             f"姿勢(平均脊柱角差): {self.analysis['posture_analysis']['spine_angle_difference']:.1f}°\n"
+            "📈 フェーズ別スコア:\n"
+            f" • アドレス: {phases.get('address', 0.0):.3f}\n"
+            f" • バックスイング: {phases.get('backswing', 0.0):.3f}\n"
+            f" • ダウンスイング: {phases.get('downswing', 0.0):.3f}\n"
+            f" • フォロースルー: {phases.get('follow_through', 0.0):.3f}"
         )
 
+    def _generate_advice(self) -> str:
+        phases = self.analysis.get("swing_phases", {})
+        sorted_phases = sorted(phases.items(), key=lambda x: x[1])
+        advice_lines = []
+        for name, score in sorted_phases:
+            if score >= 80:
+                continue
+            jp = self.PHASE_JP.get(name, name)
+            advice_lines.append(f"{jp}を改善しましょう (スコア {score:.1f})")
+        if not advice_lines:
+            return "全体的に良好なスイングです。"
+        return "改善が必要なフェーズ:\n" + "\n".join(f" • {line}" for line in advice_lines)
+
     def ask(self, message: str) -> str:  # pragma: no cover - simple stub
-        return "詳報を準備しました。気になるフェーズを指定してください。"
+        return self._generate_advice()
 
 
 # ============================================================================
