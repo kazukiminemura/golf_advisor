@@ -1,92 +1,168 @@
-"""Terminal based conversational chatbot."""
+"""Refactored modular chatbot with separation of concerns."""
 
 import argparse
+from abc import ABC, abstractmethod
+from typing import Optional
 import torch
 
 
-class SimpleChatBot:
-    """Basic conversational chatbot using a small language model."""
+class ModelInterface(ABC):
+    """Abstract interface for different model backends."""
+    
+    @abstractmethod
+    def generate_response(self, message: str) -> str:
+        pass
 
-    def __init__(self, model_name: str = "Qwen/Qwen3-8B"):
-        from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        try:  # BitsAndBytes is optional and may not be installed
-            from transformers import BitsAndBytesConfig
-        except Exception:  # pragma: no cover - import fallback
-            BitsAndBytesConfig = None
-
+class TransformersModel(ModelInterface):
+    """Hugging Face transformers model implementation."""
+    
+    def __init__(self, model_name: str):
+        self.model_name = model_name
+        self.model = None
+        self.tokenizer = None
+        self.history = None
+        self._load_model()
+    
+    def _load_model(self):
+        """Load the transformer model and tokenizer."""
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                model_name, trust_remote_code=True
-            )
-            model_kwargs = {"trust_remote_code": True, "device_map": "auto"}
-            if BitsAndBytesConfig is not None:
-                try:
-                    model_kwargs["quantization_config"] = BitsAndBytesConfig(
-                        load_in_8bit=True
-                    )
-                except Exception:  # pragma: no cover - quantization optional
-                    pass
-            self.model = AutoModelForCausalLM.from_pretrained(
-                model_name, **model_kwargs
-            )
-        except Exception:  # pragma: no cover - network-related
-            # Fallback to a trivial echo mode if the model can't be downloaded.
-            self.tokenizer = None
+            from transformers import AutoTokenizer, AutoModelForCausalLM
+            
+            print(f"Loading {self.model_name}...")
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            self.model = AutoModelForCausalLM.from_pretrained(self.model_name)
+            print("Model loaded!")
+            
+        except Exception as e:
+            print(f"Failed to load model: {e}")
             self.model = None
-        self.chat_history = None
-
-    def ask(self, message: str) -> str:
-        """Return a reply to *message* using the conversation history."""
-        if not self.tokenizer or not self.model:
-            return f"[no-model] You said: {message}"
-
-        new_user_input_ids = self.tokenizer.encode(
-            message + self.tokenizer.eos_token, return_tensors="pt"
+            self.tokenizer = None
+    
+    def generate_response(self, message: str) -> str:
+        """Generate response using the loaded model."""
+        if not self.model:
+            return f"Echo: {message}"
+        
+        inputs = self._encode_input(message)
+        outputs = self._generate_output(inputs)
+        return self._decode_response(outputs, inputs)
+    
+    def _encode_input(self, message: str) -> torch.Tensor:
+        """Encode user input with history."""
+        inputs = self.tokenizer.encode(
+            message + self.tokenizer.eos_token, 
+            return_tensors="pt"
         )
-        bot_input_ids = (
-            torch.cat([self.chat_history, new_user_input_ids], dim=-1)
-            if self.chat_history is not None
-            else new_user_input_ids
-        )
-        output_ids = self.model.generate(
-            bot_input_ids,
-            max_length=1000,
-            pad_token_id=self.tokenizer.eos_token_id,
-        )
-        self.chat_history = output_ids
+        
+        if self.history is not None:
+            inputs = torch.cat([self.history, inputs], dim=-1)
+            
+        return inputs
+    
+    def _generate_output(self, inputs: torch.Tensor) -> torch.Tensor:
+        """Generate model output."""
+        with torch.no_grad():
+            return self.model.generate(
+                inputs,
+                max_length=inputs.shape[-1] + 50,
+                temperature=0.7,
+                do_sample=True,
+                pad_token_id=self.tokenizer.eos_token_id
+            )
+    
+    def _decode_response(self, outputs: torch.Tensor, inputs: torch.Tensor) -> str:
+        """Decode and clean the response."""
+        self.history = outputs
         response = self.tokenizer.decode(
-            output_ids[:, bot_input_ids.shape[-1] :][0], skip_special_tokens=True
+            outputs[:, inputs.shape[-1]:][0], 
+            skip_special_tokens=True
         )
         return response.strip()
 
 
-def main() -> None:
-    """Launch a simple command line chat session."""
-    parser = argparse.ArgumentParser(description="Chat with a small language model")
+class EchoModel(ModelInterface):
+    """Simple echo model for testing."""
+    
+    def generate_response(self, message: str) -> str:
+        return f"Echo: {message}"
+
+
+class ChatInterface:
+    """Handles user interaction and chat flow."""
+    
+    def __init__(self, model: ModelInterface):
+        self.model = model
+        self.running = True
+    
+    def start(self):
+        """Start the chat session."""
+        self._print_welcome()
+        
+        while self.running:
+            try:
+                user_input = self._get_user_input()
+                if self._should_exit(user_input):
+                    break
+                    
+                response = self.model.generate_response(user_input)
+                self._print_response(response)
+                
+            except KeyboardInterrupt:
+                self._handle_interrupt()
+                break
+    
+    def _print_welcome(self):
+        """Print welcome message."""
+        print("Chatbot ready! Type 'quit' to exit.\n")
+    
+    def _get_user_input(self) -> str:
+        """Get input from user."""
+        return input("You: ").strip()
+    
+    def _should_exit(self, user_input: str) -> bool:
+        """Check if user wants to exit."""
+        return user_input.lower() in ["quit", "exit"]
+    
+    def _print_response(self, response: str):
+        """Print bot response."""
+        print(f"Bot: {response}\n")
+    
+    def _handle_interrupt(self):
+        """Handle Ctrl+C gracefully."""
+        print("\nGoodbye!")
+
+
+class ChatBotFactory:
+    """Factory for creating different types of chatbots."""
+    
+    @staticmethod
+    def create_model(model_name: str) -> ModelInterface:
+        """Create appropriate model based on name."""
+        if model_name.lower() == "echo":
+            return EchoModel()
+        else:
+            return TransformersModel(model_name)
+
+
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Simple modular chatbot")
     parser.add_argument(
-        "--model",
-        default="Qwen/Qwen3-8B",
-        help="HuggingFace model name to use",
+        "--model", 
+        default="microsoft/DialoGPT-medium", 
+        help="Model to use (or 'echo' for testing)"
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    bot = SimpleChatBot(model_name=args.model)
-    print("SimpleChatBot ready. Type 'exit' to quit.")
 
-    while True:
-        try:
-            message = input("You: ").strip()
-        except EOFError:  # pragma: no cover - handles pipe input ending
-            print()
-            break
-
-        if message.lower() in {"exit", "quit"}:
-            print("Bot: Goodbye!")
-            break
-
-        response = bot.ask(message)
-        print(f"Bot: {response}")
+def main():
+    """Main entry point."""
+    args = parse_args()
+    
+    model = ChatBotFactory.create_model(args.model)
+    chat = ChatInterface(model)
+    chat.start()
 
 
 if __name__ == "__main__":
