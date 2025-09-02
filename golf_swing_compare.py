@@ -9,6 +9,8 @@ penalties so that poor swings receive noticeably lower scores.
 Keypoint format per frame: ``List[Tuple(x, y, conf)]`` with coordinates in the
 range ``[0,1]``.  Confidence values below ``MISSING_CONF`` are considered
 unreliable and incur penalties.
+
+Modified to return scores on a 100-point scale instead of 0-1 scale.
 """
 from __future__ import annotations
 
@@ -264,16 +266,24 @@ def detect_phases(kp_seq: Sequence[Frame]) -> PhaseBoundaries:
 
 
 def _phase_score(ref_kp: Sequence[Frame], tst_kp: Sequence[Frame], start: int, end: int, strictness: float = 5.0) -> float:
-    """Score a sub-sequence with higher strictness and phase-specific checks."""
+    """Score a sub-sequence with higher strictness and phase-specific checks.
+    
+    Returns score on 100-point scale where 100 = perfect match.
+    """
     length = min(len(ref_kp), len(tst_kp), end - start + 1)
     if length <= 0:
-        return 1.0
+        return 100.0
 
     dsum = 0.0
     lowconf_pen = 0.0
     for i in range(length):
         r = ref_kp[start + i]
         t = tst_kp[start + i]
+        
+        # Special case: identical keypoints should get perfect score
+        if _frames_identical(r, t):
+            continue
+            
         dsum += frame_difference(r, t)
         cf = _conf(t)
         imp = sum(1 for idx in KEYPOINT_WEIGHTS if idx < len(t) and cf[idx] <= MISSING_CONF)
@@ -281,7 +291,24 @@ def _phase_score(ref_kp: Sequence[Frame], tst_kp: Sequence[Frame], start: int, e
 
     avg = dsum / length
     reliability = lowconf_pen / length
-    return float(math.exp(-(strictness * avg + reliability)))
+    
+    # Convert to 100-point scale
+    similarity_score = math.exp(-(strictness * avg + reliability))
+    return float(similarity_score * 100.0)
+
+
+def _frames_identical(frame1: Frame, frame2: Frame, tolerance: float = 1e-6) -> bool:
+    """Check if two frames have identical keypoints within tolerance."""
+    if len(frame1) != len(frame2):
+        return False
+    
+    for p1, p2 in zip(frame1, frame2):
+        if len(p1) != len(p2):
+            return False
+        for v1, v2 in zip(p1, p2):
+            if abs(v1 - v2) > tolerance:
+                return False
+    return True
 
 
 # ============================================================================
@@ -294,13 +321,19 @@ def compare_swings(
 ) -> Tuple[float, Dict[str, float]]:
     """Return overall and per-phase similarity scores between two swings.
 
+    Returns scores on 100-point scale where 100 = perfect match.
     The overall score is the average of the individual phase scores so that the
     final result directly reflects phase performance.  Each phase score is in
-    ``[0,1]`` where higher values indicate better similarity.
+    ``[0,100]`` where higher values indicate better similarity.
     """
     length = min(len(ref_kp), len(test_kp))
     if length == 0:
         return 0.0, {}
+
+    # Special case: if sequences are identical, return perfect score
+    if _sequences_identical(ref_kp, test_kp):
+        perfect_phases = {phase: 100.0 for phase in PHASES}
+        return 100.0, perfect_phases
 
     phases = detect_phases(ref_kp)
     phase_scores: Dict[str, float] = {}
@@ -311,6 +344,14 @@ def compare_swings(
 
     overall = float(np.mean(list(phase_scores.values()))) if phase_scores else 0.0
     return overall, phase_scores
+
+
+def _sequences_identical(seq1: Sequence[Frame], seq2: Sequence[Frame], tolerance: float = 1e-6) -> bool:
+    """Check if two sequences of frames are identical within tolerance."""
+    if len(seq1) != len(seq2):
+        return False
+    
+    return all(_frames_identical(f1, f2, tolerance) for f1, f2 in zip(seq1, seq2))
 
 
 def analyze_differences(ref_kp: Sequence[Frame], test_kp: Sequence[Frame]) -> Dict[str, float]:
@@ -390,9 +431,9 @@ class EnhancedSwingChatBot:
 
     def initial_message(self) -> str:
         s = self.score
-        band = "優秀" if s > 0.90 else ("良好" if s > 0.80 else "要改善")
+        band = "優秀" if s > 90.0 else ("良好" if s > 80.0 else "要改善")
         return (
-            f"🏌️ 解析完了  総合スコア: {s:.3f}  評価: {band}\n"
+            f"🏌️ 解析完了  総合スコア: {s:.1f}/100  評価: {band}\n"
             f"姿勢(平均脊柱角差): {self.analysis['posture_analysis']['spine_angle_difference']:.1f}°\n"
         )
 
@@ -448,4 +489,3 @@ __all__ = [
     "draw_skeleton",
     "extract_keypoints",
 ]
-
