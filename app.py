@@ -346,13 +346,6 @@ def index():
         device=DEVICE,
     )
 
-
-@flask_app.route("/chat")
-def chat():
-    """Render simple general-purpose chat interface."""
-    return render_template("chat.html")
-
-
 @flask_app.route("/chat_messages", methods=["GET", "POST"])
 def chat_messages_handler():
     """Handle messages for the general-purpose chatbot."""
