@@ -1,4 +1,6 @@
 flask[async]
+fastapi
+uvicorn
 openvino
 opencv-python
 numpy
