@@ -7,12 +7,16 @@ import torch
 class SimpleChatBot:
     """Basic conversational chatbot using a small language model."""
 
-    def __init__(self, model_name: str = "microsoft/DialoGPT-small"):
+    def __init__(self, model_name: str = "Qwen/Qwen3-8B"):
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-            self.model = AutoModelForCausalLM.from_pretrained(model_name)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_name, trust_remote_code=True
+            )
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name, trust_remote_code=True
+            )
         except Exception:  # pragma: no cover - network-related
             # Fallback to a trivial echo mode if the model can't be downloaded.
             self.tokenizer = None
@@ -49,7 +53,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Chat with a small language model")
     parser.add_argument(
         "--model",
-        default="microsoft/DialoGPT-small",
+        default="Qwen/Qwen3-8B",
         help="HuggingFace model name to use",
     )
     args = parser.parse_args()
