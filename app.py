@@ -37,7 +37,13 @@ def _env_flag(name: str, default: str = "") -> bool:
 
 
 def is_chatbot_enabled() -> bool:
-    return _env_flag("ENABLE_CHATBOT")
+    """Return True unless ``ENABLE_CHATBOT`` explicitly disables the chatbot.
+
+    The web UI now shows the chat panel by default. Set ``ENABLE_CHATBOT=0``
+    to hide the chatbot entirely.
+    """
+
+    return _env_flag("ENABLE_CHATBOT", "1")
 
 
 # Option to initialize chatbot only when first used (to save memory during analysis)
