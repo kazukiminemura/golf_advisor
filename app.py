@@ -275,7 +275,7 @@ def _prepare_videos_sync() -> None:
         # Compute similarity score and produce annotated videos/JSON files
         flask_app.logger.info("Computing swing similarity score...")
         try:
-            score = compare_swings(ref_keypoints, cur_keypoints)
+            score, _ = compare_swings(ref_keypoints, cur_keypoints)
             flask_app.logger.info(f"Computed score: {score}")
         except Exception as e:
             flask_app.logger.error(f"Failed to compute swing score: {e}")
