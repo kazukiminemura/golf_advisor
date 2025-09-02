@@ -110,6 +110,16 @@
       color: #555;
       font-size: 0.85em;
     }
+    .usage-item .value-detail {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      width: 50px;
+      text-align: right;
+    }
+    .usage-item .value-detail .detail {
+      margin-left: 0;
+    }
     @media (max-width: 768px) {
       body { flex-direction: column; height: auto; }
       .video-container, .chat-container { width: 100%; }
@@ -145,7 +155,14 @@
       <div class="usage-item"><span class="label"><span class="icon">🖥️</span>CPU</span><progress id="cpu-bar" max="100" value="0"></progress><span class="value" id="cpu-text">0%</span></div>
       <div class="usage-item"><span class="label"><span class="icon">🎮</span>GPU</span><progress id="gpu-bar" max="100" value="0"></progress><span class="value" id="gpu-text">0%</span></div>
       <div class="usage-item"><span class="label"><span class="icon">🤖</span>NPU</span><progress id="npu-bar" max="100" value="0"></progress><span class="value" id="npu-text">0%</span></div>
-      <div class="usage-item"><span class="label"><span class="icon">💾</span>メモリ</span><progress id="mem-bar" max="100" value="0"></progress><span class="value" id="mem-text">0%</span> <span class="detail" id="mem-detail"></span></div>
+      <div class="usage-item">
+        <span class="label"><span class="icon">💾</span>メモリ</span>
+        <progress id="mem-bar" max="100" value="0"></progress>
+        <div class="value-detail">
+          <span class="value" id="mem-text">0%</span>
+          <span class="detail" id="mem-detail"></span>
+        </div>
+      </div>
     </div>
     {% if has_results %}
     <p>スイングスコア: {{ "%.4f"|format(score) }}</p>
