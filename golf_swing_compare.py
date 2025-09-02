@@ -458,15 +458,26 @@ class EnhancedSwingChatBot:
     def _generate_advice(self) -> str:
         phases = self.analysis.get("swing_phases", {})
         sorted_phases = sorted(phases.items(), key=lambda x: x[1])
-        advice_lines = []
+        s = self.score
+        # Overall comment based on the total score
+        if s >= 90:
+            base = "総合的に素晴らしいスイングです。この調子で練習を続けましょう。"
+        elif s >= 75:
+            base = "概ね良いスイングですが、さらに伸ばせる余地があります。"
+        else:
+            base = "基礎フォームの見直しが必要です。以下のポイントを重点的に練習しましょう。"
+
+        advice_lines: list[str] = []
         for name, score in sorted_phases:
-            if score >= 80:
-                continue
             jp = self.PHASE_JP.get(name, name)
-            advice_lines.append(f"{jp}を改善しましょう (スコア {score:.1f})")
-        if not advice_lines:
-            return "全体的に良好なスイングです。"
-        return "改善が必要なフェーズ:\n" + "\n".join(f" • {line}" for line in advice_lines)
+            if score >= 90:
+                advice_lines.append(f"{jp}は非常に良いです (スコア {score:.1f})")
+            elif score >= 80:
+                advice_lines.append(f"{jp}は概ね良好です。細かな改善を目指しましょう (スコア {score:.1f})")
+            else:
+                advice_lines.append(f"{jp}を重点的に練習しましょう (スコア {score:.1f})")
+
+        return base + "\n" + "\n".join(f" • {line}" for line in advice_lines)
 
     def ask(self, message: str) -> str:  # pragma: no cover - simple stub
         return self._generate_advice()
