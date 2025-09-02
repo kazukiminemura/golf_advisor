@@ -288,29 +288,29 @@ def _phase_score(ref_kp: Sequence[Frame], tst_kp: Sequence[Frame], start: int, e
 # Top level scoring utilities
 # ============================================================================
 
-def compare_swings(ref_kp: Sequence[Frame], test_kp: Sequence[Frame]) -> float:
-    """Return similarity score between two swings in ``[0,1]``.
+def compare_swings(
+    ref_kp: Sequence[Frame],
+    test_kp: Sequence[Frame],
+) -> Tuple[float, Dict[str, float]]:
+    """Return overall and per-phase similarity scores between two swings.
 
-    The score combines frame wise distances with phase aware penalties.  Higher
-    values indicate better similarity while poor swings receive low scores.
+    The overall score is the average of the individual phase scores so that the
+    final result directly reflects phase performance.  Each phase score is in
+    ``[0,1]`` where higher values indicate better similarity.
     """
     length = min(len(ref_kp), len(test_kp))
     if length == 0:
-        return 0.0
-
-    diff_sum = sum(frame_difference(ref_kp[i], test_kp[i]) for i in range(length))
-    base = diff_sum / length
-    base_score = math.exp(-STRICTNESS_FACTOR * base)
+        return 0.0, {}
 
     phases = detect_phases(ref_kp)
-    phase_scores = [
-        _phase_score(ref_kp, test_kp, s, e, strictness=STRICTNESS_FACTOR)
-        for s, e in phases.indices.values()
-    ]
-    phase_factor = float(np.mean(phase_scores)) if phase_scores else 1.0
+    phase_scores: Dict[str, float] = {}
+    for name, (s, e) in phases.indices.items():
+        phase_scores[name] = _phase_score(
+            ref_kp, test_kp, s, e, strictness=STRICTNESS_FACTOR
+        )
 
-    score = base_score * phase_factor
-    return float(max(min(score, 1.0), 0.0))
+    overall = float(np.mean(list(phase_scores.values()))) if phase_scores else 0.0
+    return overall, phase_scores
 
 
 def analyze_differences(ref_kp: Sequence[Frame], test_kp: Sequence[Frame]) -> Dict[str, float]:
@@ -353,7 +353,7 @@ class GolfSwingAnalyzer:
 
     def _perform_analysis(self) -> Dict[str, object]:
         length = min(len(self.ref_kp), len(self.test_kp))
-        score = compare_swings(self.ref_kp, self.test_kp)
+        score, phase_scores = compare_swings(self.ref_kp, self.test_kp)
 
         spine_ref: List[float] = []
         spine_tst: List[float] = []
@@ -370,6 +370,7 @@ class GolfSwingAnalyzer:
 
         result = {
             "overall_score": score,
+            "phase_scores": phase_scores,
             "keypoint_differences": analyze_differences(self.ref_kp, self.test_kp),
             "posture_analysis": {
                 "spine_angle_difference": float(np.mean(np.abs(spine_ref - spine_tst))),
