@@ -8,16 +8,21 @@ class SimpleChatBot:
     """Basic conversational chatbot using a small language model."""
 
     def __init__(self, model_name: str = "Qwen/Qwen3-8B"):
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from transformers import (
+            AutoModelForCausalLM,
+            AutoTokenizer,
+            BitsAndBytesConfig,
+        )
 
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(
                 model_name, trust_remote_code=True
             )
+            quant_config = BitsAndBytesConfig(load_in_8bit=True)
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_name,
                 trust_remote_code=True,
-                load_in_8bit=True,
+                quantization_config=quant_config,
                 device_map="auto",
             )
         except Exception:  # pragma: no cover - network-related
