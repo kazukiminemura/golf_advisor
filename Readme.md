@@ -48,16 +48,16 @@ The script defaults to the INT8 version of `human-pose-estimation-0001`. Use `--
 
 ## Web Chat and Video Demo
 
-A minimal Flask application displays reference and test videos next to a chat window and shows the swing difference score.
+A minimal FastAPI application displays reference and test videos next to a chat window and shows the swing difference score.
 
 1. Place your videos as `data/reference.mp4` and `data/current.mp4`.
 2. Ensure the model file `intel/human-pose-estimation-0001/INT8/human-pose-estimation-0001.xml` is in the project root.
 3. Install the dependencies and start the server:
    ```bash
    pip install -r requirements.txt
-   python app.py
+   uvicorn app:app --reload
    ```
-4. Open `http://localhost:5000/` in your browser.
+4. Open `http://localhost:8000/` in your browser.
 
 ### Enable the Chatbot in the Web App
 
@@ -69,5 +69,5 @@ The chat panel uses the Qwen 8B model to provide golf swing tips in Japanese. Co
 
 ## Simple Web Chatbot
 
-A lightweight general-purpose chatbot is available at `http://localhost:5000/chat`. It uses a small DialoGPT model and stores the conversation only for the current session.
+A lightweight general-purpose chatbot is available at `http://localhost:8000/chat`. It uses a small DialoGPT model and stores the conversation only for the current session.
 
