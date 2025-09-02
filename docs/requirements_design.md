@@ -81,7 +81,7 @@
 
 
 
-   - `EnhancedSwingChatBot`が解析結果をもとに質問意図を判定し、対象フェーズ別に応答生成
+   - `EnhancedSwingChatBot`が解析結果をもとに`SimpleChatBot`で文章を生成し、対象フェーズ別に応答を返す
 
 
    - `show_comparison_with_chat`/`show_comparison`で動画比較表示を行い、前者はチャットUIと連携
