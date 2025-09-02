@@ -58,26 +58,58 @@
     }
     #usage {
       margin-bottom: 10px;
-      background: #f9f9f9;
-      padding: 10px;
-      border: 1px solid #ddd;
-      border-radius: 5px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
     }
-    #usage div {
+    .usage-item {
       display: flex;
       align-items: center;
-      margin-bottom: 8px;
+      background: #f9f9f9;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 8px 10px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
-    #usage div:last-child { margin-bottom: 0; }
-    #usage .label { width: 60px; font-weight: bold; }
-    #usage progress {
+    .usage-item .label {
+      display: flex;
+      align-items: center;
+      font-weight: bold;
+      min-width: 60px;
+    }
+    .usage-item .label .icon {
+      margin-right: 4px;
+    }
+    .usage-item progress {
       flex: 1;
-      height: 14px;
+      height: 16px;
       margin: 0 8px;
       --bar-color: green;
+      border-radius: 8px;
+      overflow: hidden;
     }
-    #usage progress::-webkit-progress-value { background-color: var(--bar-color); }
-    #usage progress::-moz-progress-bar { background-color: var(--bar-color); }
+    .usage-item progress::-webkit-progress-bar {
+      background-color: #eee;
+      border-radius: 8px;
+    }
+    .usage-item progress::-webkit-progress-value {
+      background-color: var(--bar-color);
+      border-radius: 8px;
+    }
+    .usage-item progress::-moz-progress-bar {
+      background-color: var(--bar-color);
+      border-radius: 8px;
+    }
+    .usage-item .value {
+      width: 50px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .usage-item .detail {
+      margin-left: 4px;
+      color: #555;
+      font-size: 0.85em;
+    }
     @media (max-width: 768px) {
       body { flex-direction: column; height: auto; }
       .video-container, .chat-container { width: 100%; }
@@ -110,10 +142,10 @@
     <hr class="usage-separator" />
     <div class="usage-title">H/W使用状況</div>
     <div id="usage">
-      <div><span class="label">CPU</span><progress id="cpu-bar" max="100" value="0"></progress><span id="cpu-text">0%</span></div>
-      <div><span class="label">GPU</span><progress id="gpu-bar" max="100" value="0"></progress><span id="gpu-text">0%</span></div>
-      <div><span class="label">NPU</span><progress id="npu-bar" max="100" value="0"></progress><span id="npu-text">0%</span></div>
-      <div><span class="label">メモリ</span><progress id="mem-bar" max="100" value="0"></progress><span id="mem-text">0%</span> <span id="mem-detail"></span></div>
+      <div class="usage-item"><span class="label"><span class="icon">🖥️</span>CPU</span><progress id="cpu-bar" max="100" value="0"></progress><span class="value" id="cpu-text">0%</span></div>
+      <div class="usage-item"><span class="label"><span class="icon">🎮</span>GPU</span><progress id="gpu-bar" max="100" value="0"></progress><span class="value" id="gpu-text">0%</span></div>
+      <div class="usage-item"><span class="label"><span class="icon">🤖</span>NPU</span><progress id="npu-bar" max="100" value="0"></progress><span class="value" id="npu-text">0%</span></div>
+      <div class="usage-item"><span class="label"><span class="icon">💾</span>メモリ</span><progress id="mem-bar" max="100" value="0"></progress><span class="value" id="mem-text">0%</span><span class="detail" id="mem-detail"></span></div>
     </div>
     {% if has_results %}
     <p>スイングスコア: {{ "%.4f"|format(score) }}</p>
