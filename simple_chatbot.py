@@ -8,22 +8,27 @@ class SimpleChatBot:
     """Basic conversational chatbot using a small language model."""
 
     def __init__(self, model_name: str = "Qwen/Qwen3-8B"):
-        from transformers import (
-            AutoModelForCausalLM,
-            AutoTokenizer,
-            BitsAndBytesConfig,
-        )
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        try:  # BitsAndBytes is optional and may not be installed
+            from transformers import BitsAndBytesConfig
+        except Exception:  # pragma: no cover - import fallback
+            BitsAndBytesConfig = None
 
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(
                 model_name, trust_remote_code=True
             )
-            quant_config = BitsAndBytesConfig(load_in_8bit=True)
+            model_kwargs = {"trust_remote_code": True, "device_map": "auto"}
+            if BitsAndBytesConfig is not None:
+                try:
+                    model_kwargs["quantization_config"] = BitsAndBytesConfig(
+                        load_in_8bit=True
+                    )
+                except Exception:  # pragma: no cover - quantization optional
+                    pass
             self.model = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                trust_remote_code=True,
-                quantization_config=quant_config,
-                device_map="auto",
+                model_name, **model_kwargs
             )
         except Exception:  # pragma: no cover - network-related
             # Fallback to a trivial echo mode if the model can't be downloaded.
