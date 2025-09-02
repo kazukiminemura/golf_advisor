@@ -52,10 +52,28 @@
       font-size: 14px;
     }
     .play-controls { margin-bottom: 10px; }
-    #usage div { margin-bottom: 4px; }
+    .usage-title {
+      font-weight: bold;
+      margin: 10px 0 5px;
+    }
+    #usage {
+      margin-bottom: 10px;
+      background: #f9f9f9;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+    }
+    #usage div {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    #usage div:last-child { margin-bottom: 0; }
+    #usage .label { width: 60px; font-weight: bold; }
     #usage progress {
-      width: 60%;
-      height: 20px;
+      flex: 1;
+      height: 14px;
+      margin: 0 8px;
       --bar-color: green;
     }
     #usage progress::-webkit-progress-value { background-color: var(--bar-color); }
@@ -63,7 +81,7 @@
     @media (max-width: 768px) {
       body { flex-direction: column; height: auto; }
       .video-container, .chat-container { width: 100%; }
-      #usage progress { width: 100%; }
+      #usage { width: 100%; }
     }
   </style>
 </head>
@@ -89,11 +107,13 @@
       <button id="process-btn">更新＆解析</button>
     </div>
     <div id="status"></div>
+    <hr class="usage-separator" />
+    <div class="usage-title">H/W使用状況</div>
     <div id="usage">
-      <div>CPU: <progress id="cpu-bar" max="100" value="0"></progress> <span id="cpu-text">0%</span></div>
-      <div>GPU: <progress id="gpu-bar" max="100" value="0"></progress> <span id="gpu-text">0%</span></div>
-      <div>NPU: <progress id="npu-bar" max="100" value="0"></progress> <span id="npu-text">0%</span></div>
-      <div>メモリ: <progress id="mem-bar" max="100" value="0"></progress> <span id="mem-text">0%</span> <span id="mem-detail"></span></div>
+      <div><span class="label">CPU</span><progress id="cpu-bar" max="100" value="0"></progress><span id="cpu-text">0%</span></div>
+      <div><span class="label">GPU</span><progress id="gpu-bar" max="100" value="0"></progress><span id="gpu-text">0%</span></div>
+      <div><span class="label">NPU</span><progress id="npu-bar" max="100" value="0"></progress><span id="npu-text">0%</span></div>
+      <div><span class="label">メモリ</span><progress id="mem-bar" max="100" value="0"></progress><span id="mem-text">0%</span> <span id="mem-detail"></span></div>
     </div>
     {% if has_results %}
     <p>スイングスコア: {{ "%.4f"|format(score) }}</p>
