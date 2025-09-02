@@ -22,18 +22,26 @@ flask_app = Flask(__name__)
 app = FastAPI()
 app.mount("/", WSGIMiddleware(flask_app))
 
-ENABLE_CHATBOT = os.environ.get("ENABLE_CHATBOT", "").lower() in {
-    "1",
-    "true",
-    "yes",
-}
+
+def _env_flag(name: str, default: str = "") -> bool:
+    """Return True if the given environment variable looks truthy.
+
+    This helper normalizes common truthy values ("1", "true", "yes") and allows
+    the application to respect changes to the environment without requiring a
+    restart.  Previously ``ENABLE_CHATBOT`` was evaluated only once at import
+    time which could lead to the frontend not rendering the chat panel even when
+    the variable was set later in the execution environment.
+    """
+
+    return os.environ.get(name, default).strip().lower() in {"1", "true", "yes"}
+
+
+def is_chatbot_enabled() -> bool:
+    return _env_flag("ENABLE_CHATBOT")
+
 
 # Option to initialize chatbot only when first used (to save memory during analysis)
-LAZY_CHATBOT_INIT = os.environ.get("LAZY_CHATBOT_INIT", "true").lower() in {
-    "1",
-    "true",
-    "yes",
-}
+LAZY_CHATBOT_INIT = _env_flag("LAZY_CHATBOT_INIT", "true")
 
 bot = None
 MAX_MESSAGES = 20
@@ -152,7 +160,7 @@ def _init_chatbot_sync() -> bool:
     """
     global bot, messages, ref_keypoints, cur_keypoints, score
     
-    if not ENABLE_CHATBOT:
+    if not is_chatbot_enabled():
         flask_app.logger.info("Chatbot is disabled by configuration")
         bot = None
         messages.clear()
@@ -217,7 +225,9 @@ def _prepare_videos_sync() -> None:
     try:
         import cv2
         flask_app.logger.info("Starting video analysis...")
-        flask_app.logger.info(f"ENABLE_CHATBOT setting: {ENABLE_CHATBOT}")
+        flask_app.logger.info(
+            f"ENABLE_CHATBOT setting: {is_chatbot_enabled()}"
+        )
         flask_app.logger.info(f"Reference video: {REF_VIDEO}, exists: {REF_VIDEO.exists()}")
         flask_app.logger.info(f"Current video: {CUR_VIDEO}, exists: {CUR_VIDEO.exists()}")
         flask_app.logger.info(f"Model path: {MODEL_XML}")
@@ -326,7 +336,7 @@ def index():
         ref_kp_name=REF_KP_JSON.name,
         cur_kp_name=CUR_KP_JSON.name,
         has_results=has_results,
-        chatbot_enabled=ENABLE_CHATBOT,
+        chatbot_enabled=is_chatbot_enabled(),
         device=DEVICE,
     )
 
@@ -361,7 +371,7 @@ def chat_messages_handler():
 
 @flask_app.route("/messages", methods=["GET", "POST"])
 def message_handler():
-    if not ENABLE_CHATBOT:
+    if not is_chatbot_enabled():
         if request.method == "POST":
             return jsonify({"reply": "チャットボットは無効化されています。"})
         return jsonify([])
@@ -482,7 +492,9 @@ def system_usage():
 async def analyze():
     """Run pose analysis and return the score."""
     try:
-        flask_app.logger.info(f"Starting analysis with ENABLE_CHATBOT={ENABLE_CHATBOT}")
+        flask_app.logger.info(
+            f"Starting analysis with ENABLE_CHATBOT={is_chatbot_enabled()}"
+        )
         
         # Clear any existing chatbot to free memory
         global bot, messages
@@ -495,7 +507,7 @@ async def analyze():
         
         # After video processing, try to initialize chatbot automatically
         # Only if chatbot is enabled and video processing succeeded
-        if ENABLE_CHATBOT and score is not None and not LAZY_CHATBOT_INIT:
+        if is_chatbot_enabled() and score is not None and not LAZY_CHATBOT_INIT:
             flask_app.logger.info("Attempting to initialize chatbot after successful analysis")
             try:
                 success = await init_chatbot()
@@ -586,17 +598,20 @@ def set_videos():
 @flask_app.route("/chatbot_status")
 def chatbot_status():
     """Get current chatbot status."""
+    enabled = is_chatbot_enabled()
     analysis_complete = (not analysis_running) and _results_ready()
+    status_message = (
+        "チャットボットの準備ができました。" if bot is not None
+        else "動画分析が完了しました。チャットボットの準備ができました！" if analysis_complete and enabled
+        else "チャットボットは準備中です。まず動画を分析してください。" if enabled
+        else "チャットボットは無効化されています。"
+    )
     return jsonify({
-        "enabled": ENABLE_CHATBOT,
+        "enabled": enabled,
         "initialized": bot is not None,
         "ready_to_init": analysis_complete,
         "analysis_complete": analysis_complete,
-        "status_message": (
-            "チャットボットの準備ができました。" if bot is not None 
-            else "動画分析が完了しました。チャットボットの準備ができました！" if analysis_complete
-            else "チャットボットは準備中です。まず動画を分析してください。"
-        )
+        "status_message": status_message,
     })
 
 
