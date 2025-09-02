@@ -135,7 +135,7 @@ class ChatInterface:
 
 class ChatBotFactory:
     """Factory for creating different types of chatbots."""
-    
+
     @staticmethod
     def create_model(model_name: str) -> ModelInterface:
         """Create appropriate model based on name."""
@@ -143,6 +143,30 @@ class ChatBotFactory:
             return EchoModel()
         else:
             return TransformersModel(model_name)
+
+
+class SimpleChatBot:
+    """Backward compatible wrapper providing a minimal ``ask`` interface.
+
+    Older parts of the project expect a ``SimpleChatBot`` class with an
+    ``ask`` method.  The original implementation was refactored into modular
+    components (``ModelInterface``, ``ChatBotFactory`` and friends).  This
+    wrapper restores the previous API by delegating to a lightweight model
+    created via :class:`ChatBotFactory`.
+
+    Parameters
+    ----------
+    model_name:
+        Name of the model backend to use.  Defaults to ``"echo"`` so that the
+        repository works in environments without large pretrained weights.
+    """
+
+    def __init__(self, model_name: str = "echo"):
+        self._model = ChatBotFactory.create_model(model_name)
+
+    def ask(self, message: str) -> str:
+        """Generate a reply for ``message`` using the underlying model."""
+        return self._model.generate_response(message)
 
 
 def parse_args():
