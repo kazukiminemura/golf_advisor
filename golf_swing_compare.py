@@ -20,6 +20,9 @@ from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 
+# Use the lightweight simple_chatbot backend for generative responses
+from simple_chatbot import SimpleChatBot
+
 # Import helpers from the OpenPose wrapper so that external modules can reuse
 # the original extraction pipeline.  ``extract_keypoints`` is re-exported for
 # backwards compatibility with ``app.py``.
@@ -427,7 +430,13 @@ class GolfSwingAnalyzer:
 
 
 class EnhancedSwingChatBot:
-    """Minimal conversational stub that reports swing quality."""
+    """Conversational chatbot that explains swing quality.
+
+    The bot keeps the deterministic advice generated from the swing analysis but
+    leverages :class:`SimpleChatBot` to turn that advice into more natural
+    Japanese responses.  The lightweight language model allows basic sentence
+    generation without pulling in the heavy Qwen model used elsewhere in the
+    project."""
 
     PHASE_JP = {
         "address": "アドレス",
@@ -440,12 +449,14 @@ class EnhancedSwingChatBot:
         self.analyzer = GolfSwingAnalyzer(ref_kp, test_kp)
         self.score = score if score is not None else self.analyzer.analysis_results["overall_score"]
         self.analysis = self.analyzer.analysis_results
+        # Back-end generative model for phrasing replies
+        self._simple_bot = SimpleChatBot()
 
     def initial_message(self) -> str:
         s = self.score
         band = "優秀" if s > 90.0 else ("良好" if s > 80.0 else "要改善")
         phases = self.analysis.get("swing_phases", {})
-        return (
+        base = (
             f"🏌️ 解析完了  総合スコア: {s:.1f}/100  評価: {band}\n"
             f"姿勢(平均脊柱角差): {self.analysis['posture_analysis']['spine_angle_difference']:.1f}°\n"
             "📈 フェーズ別スコア:\n"
@@ -454,6 +465,13 @@ class EnhancedSwingChatBot:
             f" • ダウンスイング: {phases.get('downswing', 0.0):.3f}\n"
             f" • フォロースルー: {phases.get('follow_through', 0.0):.3f}"
         )
+        try:
+            # Let the simple chatbot rephrase the summary for a more natural tone
+            return self._simple_bot.ask(
+                "以下のゴルフスイング解析結果を分かりやすい文章で伝えてください:\n" + base
+            )
+        except Exception:
+            return base
 
     def _generate_advice(self) -> str:
         phases = self.analysis.get("swing_phases", {})
@@ -480,7 +498,13 @@ class EnhancedSwingChatBot:
         return base + "\n" + "\n".join(f" • {line}" for line in advice_lines)
 
     def ask(self, message: str) -> str:  # pragma: no cover - simple stub
-        return self._generate_advice()
+        advice = self._generate_advice()
+        prompt = f"{advice}\nユーザー: {message}"
+        try:
+            return self._simple_bot.ask(prompt)
+        except Exception:
+            # Fallback to deterministic advice when generation fails
+            return advice
 
 
 # ============================================================================
