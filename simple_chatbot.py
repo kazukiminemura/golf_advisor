@@ -15,7 +15,10 @@ class SimpleChatBot:
                 model_name, trust_remote_code=True
             )
             self.model = AutoModelForCausalLM.from_pretrained(
-                model_name, trust_remote_code=True
+                model_name,
+                trust_remote_code=True,
+                load_in_8bit=True,
+                device_map="auto",
             )
         except Exception:  # pragma: no cover - network-related
             # Fallback to a trivial echo mode if the model can't be downloaded.
