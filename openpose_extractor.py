@@ -1,6 +1,7 @@
 """Utilities for extracting keypoints using OpenPose/OpenVINO models."""
 
 from pathlib import Path
+from typing import Dict, Tuple
 
 # ---------------------------------------------------------------------------
 # Normalization utilities
@@ -37,15 +38,37 @@ def scale_score(score: float, height: int, base: int = BASE_RESOLUTION) -> float
     return score * (base / max(height, 1))
 
 
+_MODEL_CACHE: Dict[Tuple[str, str], Tuple[object, object]] = {}
+
+
 def load_model(model_xml: str, device: str = "CPU"):
-    """Load an OpenVINO pose estimation model."""
+    """Load (or return cached) OpenVINO pose estimation model.
+
+    Returns a tuple of ``(compiled_model, output_layer)``. Subsequent calls with
+    the same ``(model_xml, device)`` reuse the cached compiled model to avoid
+    expensive reloads.
+    """
+    key = (str(model_xml), str(device))
+    cached = _MODEL_CACHE.get(key)
+    if cached is not None:
+        return cached
+
     from openvino.runtime import Core
 
     core = Core()
     model = core.read_model(model=model_xml)
     compiled_model = core.compile_model(model=model, device_name=device)
     output_layer = compiled_model.output(0)
+    _MODEL_CACHE[key] = (compiled_model, output_layer)
     return compiled_model, output_layer
+
+
+def preload_openpose_model(model_xml: str, device: str = "CPU") -> None:
+    """Warm up and cache the OpenPose/OpenVINO model.
+
+    Safe to call multiple times; subsequent calls are no-ops thanks to caching.
+    """
+    load_model(model_xml, device)
 
 
 def preprocess(frame, input_shape):

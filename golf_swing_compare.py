@@ -451,6 +451,24 @@ class EnhancedSwingChatBot:
         self.analysis = self.analyzer.analysis_results
         # Back-end generative model for phrasing replies
         self._simple_bot = SimpleChatBot()
+        # Prime the LLM with a concise persona + context so以降は文脈を考慮したコーチ応答にする
+        phases = self.analysis.get("swing_phases", {})
+        worst = sorted(phases.items(), key=lambda x: x[1])[:2]
+        def jp_name(k: str) -> str:
+            return self.PHASE_JP.get(k, k)
+        worst_txt = ", ".join(f"{jp_name(k)}({v:.1f})" for k, v in worst) if worst else "なし"
+        sys_prompt = (
+            "あなたはプロのゴルフコーチです。厳しめだが建設的に、短く具体的に助言します。\n"
+            "- 日本語で回答する\n"
+            "- 箇条書き中心、各行は簡潔に\n"
+            "- 次の練習アクションを1-3個提示\n"
+            f"【文脈】総合スコア: {self.score:.1f}。弱点: {worst_txt}。\n"
+            "質問に合わせて、必要なら数値や体の位置を具体的に示す"
+        )
+        try:
+            self._simple_bot.set_system_prompt(sys_prompt)
+        except Exception:
+            pass
 
     def initial_message(self) -> str:
         s = self.score
@@ -501,13 +519,13 @@ class EnhancedSwingChatBot:
         return base + "\n" + "\n".join(f" • {line}" for line in advice_lines)
 
     def ask(self, message: str) -> str:  # pragma: no cover - simple stub
-        advice = self._generate_advice()
-        prompt = f"{advice}\nユーザー: {message}"
+        # 応答レイテンシ短縮のため、毎回の長い助言テキストは付与せず
+        # ユーザー発話のみを LLM に渡す。
         try:
-            return self._simple_bot.ask(prompt)
+            return self._simple_bot.ask(message)
         except Exception:
-            # Fallback to deterministic advice when generation fails
-            return advice
+            # 生成に失敗した場合は決定論的な助言を返す
+            return self._generate_advice()
 
 
 # ============================================================================

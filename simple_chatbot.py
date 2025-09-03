@@ -14,6 +14,20 @@ class ModelInterface(ABC):
     def generate_response(self, message: str) -> str:
         pass
 
+    # Optional chat-style hooks (no-op by default)
+    def set_system_prompt(self, prompt: str) -> None:  # pragma: no cover - optional
+        return None
+
+    def reset_history(self) -> None:  # pragma: no cover - optional
+        return None
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, "").strip())
+    except Exception:
+        return default
+
 
 class TransformersModel(ModelInterface):
     """Hugging Face transformers model implementation."""
@@ -24,6 +38,8 @@ class TransformersModel(ModelInterface):
         self.tokenizer = None
         self.history = None
         self._load_model()
+        # Shared generation limit across implementations
+        self.max_new_tokens = _env_int("LLM_MAX_TOKENS", 256)
     
     def _load_model(self):
         """Load the transformer model and tokenizer."""
@@ -61,12 +77,23 @@ class TransformersModel(ModelInterface):
         outputs = self._generate_output(inputs)
         return self._decode_response(outputs, inputs)
     
+    # --- chat-style conditioning ---
+    def set_system_prompt(self, prompt: str) -> None:
+        self.system_prompt = prompt
+        self._primed = False
+
+    def reset_history(self) -> None:
+        self.history = None
+        self._primed = False
+    
     def _encode_input(self, message: str) -> torch.Tensor:
         """Encode user input with history."""
-        inputs = self.tokenizer.encode(
-            message + self.tokenizer.eos_token, 
-            return_tensors="pt"
-        )
+        # Apply system prompt once to prime persona/context
+        text = message
+        if getattr(self, "system_prompt", None) and not getattr(self, "_primed", False):
+            text = f"[SYSTEM]\n{self.system_prompt}\n[USER]\n{message}"
+            self._primed = True
+        inputs = self.tokenizer.encode(text + self.tokenizer.eos_token, return_tensors="pt")
         
         if self.history is not None:
             inputs = torch.cat([self.history, inputs], dim=-1)
@@ -78,10 +105,10 @@ class TransformersModel(ModelInterface):
         with torch.no_grad():
             return self.model.generate(
                 inputs,
-                max_length=inputs.shape[-1] + 50,
+                max_new_tokens=self.max_new_tokens,
                 temperature=0.7,
                 do_sample=True,
-                pad_token_id=self.tokenizer.eos_token_id
+                pad_token_id=self.tokenizer.eos_token_id,
             )
     
     def _decode_response(self, outputs: torch.Tensor, inputs: torch.Tensor) -> str:
@@ -117,21 +144,31 @@ class LlamaCppModel(ModelInterface):
         self.n_ctx = n_ctx
         self.llm = None
         self.history: List[Dict[str, str]] = []
+        # Generation/token limits
+        self.max_new_tokens = _env_int("LLM_MAX_TOKENS", 256)
         self._load_model()
 
     def _load_model(self):
         try:
             from llama_cpp import Llama
             threads = max(1, os.cpu_count() or 1)
+            n_batch = _env_int("LLAMA_N_BATCH", 1024)
+            n_gpu_layers = _env_int("LLAMA_N_GPU_LAYERS", 0)
             print(f"Loading GGUF from {self.repo_id}/{self.filename} ...")
-            # Use built-in HF downloader; chat_format 'qwen' per llama.cpp support
-            self.llm = Llama.from_pretrained(
+            # Build args; include n_gpu_layers only when > 0 to avoid None issues
+            kwargs = dict(
                 repo_id=self.repo_id,
                 filename=self.filename,
                 n_ctx=self.n_ctx,
                 n_threads=threads,
+                n_batch=n_batch,
+                use_mmap=True,
                 chat_format="qwen",
             )
+            if n_gpu_layers > 0:
+                kwargs["n_gpu_layers"] = n_gpu_layers
+            # Use built-in HF downloader; chat_format 'qwen' per llama.cpp support
+            self.llm = Llama.from_pretrained(**kwargs)
             print("GGUF model loaded!")
         except Exception as e:
             print(f"Failed to load GGUF model: {e}")
@@ -146,13 +183,24 @@ class LlamaCppModel(ModelInterface):
             result = self.llm.create_chat_completion(
                 messages=self.history,
                 temperature=0.7,
-                max_tokens=512,
+                max_tokens=self.max_new_tokens,
             )
             reply = result["choices"][0]["message"]["content"].strip()
             self.history.append({"role": "assistant", "content": reply})
             return reply
         except Exception as e:
             return f"[Error generating response: {e}]"
+
+    # --- chat-style conditioning ---
+    def set_system_prompt(self, prompt: str) -> None:
+        # Insert or replace a leading system message to steer behavior
+        if self.history and self.history[0].get("role") == "system":
+            self.history[0]["content"] = prompt
+        else:
+            self.history.insert(0, {"role": "system", "content": prompt})
+
+    def reset_history(self) -> None:
+        self.history = []
 
 
 class ChatInterface:
@@ -226,6 +274,21 @@ class ChatBotFactory:
         return TransformersModel(model_name)
 
 
+# Shared model cache for quick reuse across instances
+_SHARED_MODEL: Optional[ModelInterface] = None
+
+
+def preload_model(model_name: str = "Qwen/Qwen2.5-3B-Instruct-GGUF", gguf_filename: Optional[str] = None) -> None:
+    """Load the LLM backend asynchronously-safe for reuse.
+
+    Subsequent ``SimpleChatBot`` instances reuse this shared model to avoid
+    reload and large allocations during request handling.
+    """
+    global _SHARED_MODEL
+    if _SHARED_MODEL is None:
+        _SHARED_MODEL = ChatBotFactory.create_model(model_name, gguf_filename=gguf_filename)
+
+
 class SimpleChatBot:
     """Backward compatible wrapper providing a minimal ``ask`` interface.
 
@@ -243,11 +306,25 @@ class SimpleChatBot:
     """
 
     def __init__(self, model_name: str = "Qwen/Qwen2.5-3B-Instruct-GGUF", gguf_filename: Optional[str] = None):
-        self._model = ChatBotFactory.create_model(model_name, gguf_filename=gguf_filename)
+        global _SHARED_MODEL
+        # Reuse a preloaded model if present; otherwise build a fresh one.
+        if _SHARED_MODEL is None:
+            self._model = ChatBotFactory.create_model(model_name, gguf_filename=gguf_filename)
+        else:
+            self._model = _SHARED_MODEL
 
     def ask(self, message: str) -> str:
         """Generate a reply for ``message`` using the underlying model."""
         return self._model.generate_response(message)
+
+    # Expose optional hooks when available
+    def set_system_prompt(self, prompt: str) -> None:
+        if hasattr(self._model, "set_system_prompt"):
+            self._model.set_system_prompt(prompt)  # type: ignore[attr-defined]
+
+    def reset_history(self) -> None:
+        if hasattr(self._model, "reset_history"):
+            self._model.reset_history()  # type: ignore[attr-defined]
 
 
 def parse_args():

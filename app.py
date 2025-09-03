@@ -114,6 +114,39 @@ score = None
 analysis_running = False  # Guard to prevent chatbot init during analysis
 
 
+@app.on_event("startup")
+async def warm_models_background():
+    """Kick off background warm-up for OpenPose and LLM models.
+
+    This runs asynchronously so the server becomes available immediately while
+    models load in the background.
+    """
+    # Warm OpenPose (OpenVINO) model
+    async def _warm_openpose():
+        try:
+            from openpose_extractor import preload_openpose_model
+            await asyncio.to_thread(preload_openpose_model, MODEL_XML, DEVICE)
+            logger.info("OpenPose model preloaded in background")
+        except Exception as exc:
+            logger.warning("OpenPose preload failed: %s", exc)
+
+    # Warm LLM backend used by SimpleChatBot/EnhancedSwingChatBot
+    async def _warm_llm():
+        try:
+            from simple_chatbot import preload_model
+            await asyncio.to_thread(preload_model)
+            logger.info("LLM model preloaded in background")
+        except Exception as exc:
+            logger.warning("LLM preload failed: %s", exc)
+
+    # Start both tasks without blocking startup
+    tasks = [asyncio.create_task(_warm_openpose()), asyncio.create_task(_warm_llm())]
+    # Keep references so they aren't GC'd; purely informational, not awaited.
+    if not hasattr(app.state, "warmup_tasks"):
+        app.state.warmup_tasks = []
+    app.state.warmup_tasks.extend(tasks)
+
+
 def get_gpu_usage() -> float:
     """Return GPU utilization percentage if available."""
     try:
