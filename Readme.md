@@ -57,7 +57,7 @@ A minimal FastAPI application displays reference and test videos next to a chat 
    pip install -r requirements.txt
    uvicorn app:app --reload
    ```
-4. Open `http://localhost:8000/` in your browser.
+   4. Open `http://localhost:8000/` in your browser.
 
 ### Chatbot in the Web App
 
@@ -70,4 +70,15 @@ The chat panel is enabled by default and uses the Qwen 8B model to provide golf 
 ## Simple Web Chatbot
 
 A lightweight general-purpose chatbot is available at `http://localhost:8000/chat`. It uses a small DialoGPT model and stores the conversation only for the current session.
+
+## Backend Architecture (SOLID Refactor)
+
+- Services:
+  - Analysis: `backend/services/analysis_service.py` handles keypoint extraction, scoring, and artifact generation.
+  - Chatbot: `backend/services/chatbot_service.py` manages both swing-specific and general chatbots and their histories.
+  - System: `backend/services/system_service.py` exposes CPU/GPU/NPU and memory metrics.
+- Config: `backend/config.py` centralizes environment flags and default paths.
+- Utils: `backend/utils/files.py` provides safe filename handling.
+
+FastAPI routes in `app.py` delegate to these services, reducing global state and coupling. This improves testability and aligns with the Single Responsibility and Dependency Inversion principles while preserving existing HTTP API behavior.
 
