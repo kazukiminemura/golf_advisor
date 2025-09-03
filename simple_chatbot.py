@@ -157,11 +157,12 @@ class SimpleChatBot:
     Parameters
     ----------
     model_name:
-        Name of the model backend to use.  Defaults to ``"echo"`` so that the
-        repository works in environments without large pretrained weights.
+        Name of the model backend to use.  Defaults to
+        ``"microsoft/DialoGPT-medium"`` which mirrors the command line
+        interface's behaviour.
     """
 
-    def __init__(self, model_name: str = "echo"):
+    def __init__(self, model_name: str = "microsoft/DialoGPT-medium"):
         self._model = ChatBotFactory.create_model(model_name)
 
     def ask(self, message: str) -> str:
