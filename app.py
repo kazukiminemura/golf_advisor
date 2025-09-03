@@ -545,15 +545,32 @@ async def init_chatbot_route():
         # Prevent initialization during analysis to avoid contention
         global analysis_running
         if analysis_running:
-            return jsonify({
-                "status": "error",
-                "message": "動画分析中のため、チャットボットの初期化は完了後に実行してください。"
-            }), 400
+            # Respond with 202 so clients know to retry later without logging
+            # a misleading Bad Request.
+            return (
+                jsonify(
+                    {
+                        "status": "pending",
+                        "message": "動画分析中のため、チャットボットの初期化は完了後に実行してください。",
+                    },
+                ),
+                202,
+            )
         success = await init_chatbot()  # Initialize chatbot separately
         if success:
             return jsonify({"status": "ok", "message": "チャットボットの準備ができました。"})
         else:
-            return jsonify({"status": "error", "message": "チャットボットの初期化に失敗しました。"}), 400
+            # Missing prerequisites (e.g. keypoints) shouldn't surface as a
+            # 400 error in the logs; indicate initialization is pending.
+            return (
+                jsonify(
+                    {
+                        "status": "pending",
+                        "message": "チャットボットの初期化に必要なデータが不足しています。",
+                    }
+                ),
+                202,
+            )
     except Exception as exc:
         flask_app.logger.exception("Error initializing chatbot: %s", exc)
         return jsonify({"status": "error", "message": "チャットボットの初期化中にエラーが発生しました。"}), 500
