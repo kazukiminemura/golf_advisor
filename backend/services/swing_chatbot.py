@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict
 
 from backend.analysis.swing_compare import GolfSwingAnalyzer
+from backend.config import Settings
 from simple_chatbot import SimpleChatBot
 
 
@@ -24,7 +25,11 @@ class EnhancedSwingChatBot:
         self.analyzer = GolfSwingAnalyzer(ref_kp, test_kp)
         self.score = score if score is not None else self.analyzer.analysis_results["overall_score"]
         self.analysis: Dict[str, object] = self.analyzer.analysis_results
-        self._simple_bot = SimpleChatBot()
+        self._simple_bot = SimpleChatBot(
+            model_name=Settings.CHAT_MODEL,
+            gguf_filename=Settings.CHAT_GGUF_FILENAME,
+            backend=Settings.LLM_BACKEND,
+        )
         phases = self.analysis.get("swing_phases", {})  # type: ignore[assignment]
         worst = sorted(phases.items(), key=lambda x: x[1])[:2] if isinstance(phases, dict) else []
 
@@ -99,4 +104,3 @@ class EnhancedSwingChatBot:
 
 
 __all__ = ["EnhancedSwingChatBot"]
-

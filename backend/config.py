@@ -28,4 +28,9 @@ class Settings:
     ENABLE_CHATBOT = env_flag("ENABLE_CHATBOT", "1")
     LAZY_CHATBOT_INIT = env_flag("LAZY_CHATBOT_INIT", "true")
 
+    # LLM configuration
+    CHAT_MODEL = env_str("CHAT_MODEL", "Qwen/Qwen2.5-3B-Instruct-GGUF")
+    CHAT_GGUF_FILENAME = env_str("CHAT_GGUF_FILENAME", "qwen2.5-3b-instruct-q4_k_m.gguf")
+    # Backend selector: auto | openvino | llama | transformers
+    LLM_BACKEND = env_str("LLM_BACKEND", "auto")
 

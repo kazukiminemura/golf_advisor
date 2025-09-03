@@ -37,7 +37,11 @@ class ChatbotService:
 
     def general_ask(self, message: str) -> str:
         if self._general_bot is None:
-            self._general_bot = SimpleChatBot()
+            self._general_bot = SimpleChatBot(
+                model_name=Settings.CHAT_MODEL,
+                gguf_filename=Settings.CHAT_GGUF_FILENAME,
+                backend=Settings.LLM_BACKEND,
+            )
         self._general_messages.append({"role": "user", "content": message})
         reply = self._general_bot.ask(message)
         self._general_messages.append({"role": "assistant", "content": reply})
@@ -92,4 +96,3 @@ class ChatbotService:
         if len(self._swing_messages) > max_messages:
             self._swing_messages[:] = self._swing_messages[-max_messages:]
         return reply
-
