@@ -84,7 +84,12 @@ async def warm_models_background():
     # Warm LLM backend used by SimpleChatBot/EnhancedSwingChatBot
     async def _warm_llm():
         try:
-            await asyncio.to_thread(preload_model)
+            await asyncio.to_thread(
+                preload_model,
+                settings.CHAT_MODEL,
+                gguf_filename=settings.CHAT_GGUF_FILENAME,
+                backend=settings.LLM_BACKEND,
+            )
             logger.info("LLM model preloaded in background")
         except Exception as exc:
             logger.warning("LLM preload failed: %s", exc)

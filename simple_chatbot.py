@@ -1,5 +1,6 @@
 """Refactored modular chatbot with separation of concerns."""
 
+
 import argparse
 import os
 from abc import ABC, abstractmethod
@@ -203,6 +204,120 @@ class LlamaCppModel(ModelInterface):
         self.history = []
 
 
+class OpenVINOModel(ModelInterface):
+    """OpenVINO GenAI backend for local optimized LLMs.
+
+    Usage:
+        Pass model identifier as "openvino:<path>" where <path> points to
+        either:
+          - a GGUF file, which will be loaded via openvino_genai.LLM, or
+          - an OpenVINO-optimized model directory, loaded via TextGeneration.
+
+        Examples:
+            --model openvino:C:\\models\\Qwen2.5-Instruct-3B.Q4_K_M.gguf
+            --model openvino:C:\\models\\qwen2.5-3b-instruct-int4-ov
+
+    Notes:
+        - Requires the Python package "openvino-genai". If it is not installed,
+          this class gracefully falls back to echo behavior and prints a hint.
+        - Device can be selected via env var OPENVINO_DEVICE (CPU, GPU.0, etc.).
+    """
+
+    def __init__(self, model_path: str, device: Optional[str] = None):
+        self.model_path = model_path
+        self.device = device or os.environ.get("OPENVINO_DEVICE", "CPU")
+        self.max_new_tokens = _env_int("LLM_MAX_TOKENS", 256)
+
+        self._pipe = None
+        self._cfg = None
+        self._mode = ""  # "llm" for GGUF, "textgen" for OV IR
+        self._context = ""
+        self._primed = False
+        self.system_prompt: Optional[str] = None
+        self._load_model()
+
+    def _load_model(self) -> None:
+        try:
+            # Lazy imports based on mode to avoid ImportError for unavailable APIs
+            if self.model_path.lower().endswith(".gguf"):
+                from openvino_genai import LLM  # type: ignore
+                print(f"Loading OpenVINO GenAI LLM (GGUF) from {self.model_path} ...")
+                self._pipe = LLM(self.model_path)
+                self._mode = "llm"
+            else:
+                # TextGeneration path (OV IR); GenerationConfig may vary by version
+                try:
+                    from openvino_genai import TextGeneration, GenerationConfig  # type: ignore
+                except ImportError as ie:
+                    # Provide a clearer hint for older installs lacking TextGeneration
+                    raise RuntimeError(
+                        "openvino-genai TextGeneration API not found. Install/upgrade: pip install -U openvino-genai"
+                    ) from ie
+                print(f"Loading OpenVINO TextGeneration from {self.model_path} on {self.device} ...")
+                self._pipe = TextGeneration(self.model_path, device=self.device)
+                try:
+                    self._cfg = GenerationConfig(
+                        max_new_tokens=self.max_new_tokens,
+                        temperature=0.7,
+                    )
+                except Exception:
+                    # If config class not available, proceed without it
+                    self._cfg = None
+                self._mode = "textgen"
+            print("OpenVINO model loaded!")
+        except Exception as e:
+            print(
+                "Failed to initialize OpenVINO GenAI. Install with 'pip install openvino-genai' "
+                f"or verify the model path. Error: {e}"
+            )
+            self._pipe = None
+            self._cfg = None
+
+    # --- chat-style conditioning ---
+    def set_system_prompt(self, prompt: str) -> None:
+        self.system_prompt = prompt
+        self._primed = False
+
+    def reset_history(self) -> None:
+        self._context = ""
+        self._primed = False
+
+    def _build_prompt(self, message: str) -> str:
+        # Mimic a simple chat-style format. If the model was exported with a
+        # chat template, GenAI may apply it; otherwise this basic prompting is used.
+        if self.system_prompt and not self._primed:
+            self._context += f"[SYSTEM]\n{self.system_prompt}\n"
+            self._primed = True
+        # Append new user turn
+        prompt = f"{self._context}[USER]\n{message}\n[ASSISTANT]\n"
+        return prompt
+
+    def _update_context(self, user_message: str, assistant_reply: str) -> None:
+        self._context += f"[USER]\n{user_message}\n[ASSISTANT]\n{assistant_reply}\n"
+
+    def generate_response(self, message: str) -> str:
+        if self._pipe is None or self._cfg is None:
+            return f"Echo: {message}"
+
+        prompt = self._build_prompt(message)
+        try:
+            if self._mode == "llm":
+                out = self._pipe.generate(prompt)
+            else:
+                # Some versions accept a config object; others accept kwargs
+                if self._cfg is not None:
+                    out = self._pipe.generate(prompt, self._cfg)
+                else:
+                    out = self._pipe.generate(prompt)
+        except Exception as e:
+            return f"[OpenVINO generation error: {e}]"
+
+        # If the pipeline returns full text, strip the prompt prefix to get the reply.
+        reply = out[len(prompt):].strip() if isinstance(out, str) and out.startswith(prompt) else str(out).strip()
+        self._update_context(message, reply)
+        return reply
+
+
 class ChatInterface:
     """Handles user interaction and chat flow."""
     
@@ -257,12 +372,32 @@ class ChatBotFactory:
         return os.environ.get(name, default).strip().lower() in {"1", "true", "yes"}
 
     @classmethod
-    def create_model(cls, model_name: str, gguf_filename: Optional[str] = None) -> ModelInterface:
+    def create_model(cls, model_name: str, gguf_filename: Optional[str] = None, backend: Optional[str] = None) -> ModelInterface:
         """Create appropriate model based on name or debug env flag."""
         if cls._env_flag("CHATBOT_DEBUG"):
-            return EchoModel(prefix="(デバッグ) ")
+            return EchoModel(prefix="(debug) ")
         if model_name.lower() == "echo":
             return EchoModel()
+        # Optional explicit backend via arg or env var LLM_BACKEND
+        backend_choice = (backend or os.environ.get("LLM_BACKEND", "auto")).strip().lower()
+        if backend_choice in {"openvino", "llama", "transformers"}:
+            if backend_choice == "openvino":
+                ov_path = (
+                    model_name.split(":", 1)[1].strip()
+                    if model_name.lower().startswith("openvino:")
+                    else model_name
+                )
+                return OpenVINOModel(model_path=ov_path)
+            if backend_choice == "llama":
+                if "/" in model_name and not model_name.lower().endswith(".gguf"):
+                    return LlamaCppModel(repo_id=model_name, filename=gguf_filename)
+                return LlamaCppModel(repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF", filename=gguf_filename or model_name)
+            # transformers
+            return TransformersModel(model_name)
+        # OpenVINO backend via openvino-genai using scheme: openvino:<path>
+        if model_name.lower().startswith("openvino:"):
+            ov_path = model_name.split(":", 1)[1].strip()
+            return OpenVINOModel(model_path=ov_path)
         # GGUF backend via llama.cpp if the identifier suggests GGUF
         if model_name.lower().endswith(".gguf") or "gguf" in model_name.lower():
             if "/" in model_name and not model_name.lower().endswith(".gguf"):
@@ -278,7 +413,7 @@ class ChatBotFactory:
 _SHARED_MODEL: Optional[ModelInterface] = None
 
 
-def preload_model(model_name: str = "Qwen/Qwen2.5-3B-Instruct-GGUF", gguf_filename: Optional[str] = None) -> None:
+def preload_model(model_name: str = "Qwen/Qwen2.5-3B-Instruct-GGUF", gguf_filename: Optional[str] = None, backend: Optional[str] = None) -> None:
     """Load the LLM backend asynchronously-safe for reuse.
 
     Subsequent ``SimpleChatBot`` instances reuse this shared model to avoid
@@ -286,7 +421,7 @@ def preload_model(model_name: str = "Qwen/Qwen2.5-3B-Instruct-GGUF", gguf_filena
     """
     global _SHARED_MODEL
     if _SHARED_MODEL is None:
-        _SHARED_MODEL = ChatBotFactory.create_model(model_name, gguf_filename=gguf_filename)
+        _SHARED_MODEL = ChatBotFactory.create_model(model_name, gguf_filename=gguf_filename, backend=backend)
 
 
 class SimpleChatBot:
@@ -305,11 +440,11 @@ class SimpleChatBot:
         ``"Qwen/Qwen2.5-3B-Instruct-GGUF"``.
     """
 
-    def __init__(self, model_name: str = "Qwen/Qwen2.5-3B-Instruct-GGUF", gguf_filename: Optional[str] = None):
+    def __init__(self, model_name: str = "Qwen/Qwen2.5-3B-Instruct-GGUF", gguf_filename: Optional[str] = None, backend: Optional[str] = None):
         global _SHARED_MODEL
         # Reuse a preloaded model if present; otherwise build a fresh one.
         if _SHARED_MODEL is None:
-            self._model = ChatBotFactory.create_model(model_name, gguf_filename=gguf_filename)
+            self._model = ChatBotFactory.create_model(model_name, gguf_filename=gguf_filename, backend=backend)
         else:
             self._model = _SHARED_MODEL
 
@@ -333,12 +468,21 @@ def parse_args():
     parser.add_argument(
         "--model",
         default="Qwen/Qwen2.5-3B-Instruct-GGUF",
-        help="Model to use (e.g., repo 'Qwen/Qwen2.5-3B-Instruct-GGUF' or 'echo')"
+        help=(
+            "Model to use: repo 'Qwen/Qwen2.5-3B-Instruct-GGUF', 'echo', or "
+            "'openvino:<path_to_ov_or_gguf>'"
+        )
     )
     parser.add_argument(
         "--gguf-filename",
         default="qwen2.5-3b-instruct-q4_k_m.gguf",
         help="GGUF filename within the repo (for llama.cpp backend)"
+    )
+    parser.add_argument(
+        "--backend",
+        choices=["auto", "openvino", "llama", "transformers"],
+        default=os.environ.get("LLM_BACKEND", "auto"),
+        help="Backend: auto, openvino, llama, transformers (overrides auto-detect)."
     )
     return parser.parse_args()
 
@@ -347,10 +491,13 @@ def main():
     """Main entry point."""
     args = parse_args()
     
-    model = ChatBotFactory.create_model(args.model, gguf_filename=args.gguf_filename)
+    model = ChatBotFactory.create_model(args.model, gguf_filename=args.gguf_filename, backend=args.backend)
     chat = ChatInterface(model)
     chat.start()
 
 
 if __name__ == "__main__":
     main()
+
+
+
