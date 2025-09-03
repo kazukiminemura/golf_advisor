@@ -1,6 +1,7 @@
 """Refactored modular chatbot with separation of concerns."""
 
 import argparse
+import os
 from abc import ABC, abstractmethod
 from typing import Optional
 import torch
@@ -83,9 +84,12 @@ class TransformersModel(ModelInterface):
 
 class EchoModel(ModelInterface):
     """Simple echo model for testing."""
-    
+
+    def __init__(self, prefix: str = "Echo: "):
+        self.prefix = prefix
+
     def generate_response(self, message: str) -> str:
-        return f"Echo: {message}"
+        return f"{self.prefix}{message}"
 
 
 class ChatInterface:
@@ -137,12 +141,18 @@ class ChatBotFactory:
     """Factory for creating different types of chatbots."""
 
     @staticmethod
-    def create_model(model_name: str) -> ModelInterface:
-        """Create appropriate model based on name."""
+    def _env_flag(name: str, default: str = "") -> bool:
+        """Return True if the environment variable ``name`` looks truthy."""
+        return os.environ.get(name, default).strip().lower() in {"1", "true", "yes"}
+
+    @classmethod
+    def create_model(cls, model_name: str) -> ModelInterface:
+        """Create appropriate model based on name or debug env flag."""
+        if cls._env_flag("CHATBOT_DEBUG"):
+            return EchoModel(prefix="(デバッグ) ")
         if model_name.lower() == "echo":
             return EchoModel()
-        else:
-            return TransformersModel(model_name)
+        return TransformersModel(model_name)
 
 
 class SimpleChatBot:
