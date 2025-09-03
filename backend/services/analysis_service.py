@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from backend.config import Settings
-from golf_swing_compare import compare_swings, draw_skeleton, extract_keypoints
+from backend.analysis import compare_swings, draw_skeleton
+from backend.inference import extract_keypoints
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -162,4 +163,3 @@ class AnalysisService:
                         p.unlink()
                 except Exception:
                     pass
-

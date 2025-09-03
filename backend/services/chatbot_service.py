@@ -4,7 +4,7 @@ import logging
 from typing import Optional, List, Dict
 
 from backend.config import Settings
-from golf_swing_compare import EnhancedSwingChatBot
+from backend.services.swing_chatbot import EnhancedSwingChatBot
 from simple_chatbot import SimpleChatBot
 
 
@@ -92,5 +92,4 @@ class ChatbotService:
         if len(self._swing_messages) > max_messages:
             self._swing_messages[:] = self._swing_messages[-max_messages:]
         return reply
-
 

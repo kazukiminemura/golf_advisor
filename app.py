@@ -75,7 +75,7 @@ async def warm_models_background():
     # Warm OpenPose (OpenVINO) model
     async def _warm_openpose():
         try:
-            from openpose_extractor import preload_openpose_model
+            from backend.inference import preload_openpose_model
             await asyncio.to_thread(preload_openpose_model, analysis.model_xml, analysis.device)
             logger.info("OpenPose model preloaded in background")
         except Exception as exc:
