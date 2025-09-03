@@ -3,7 +3,7 @@
 import argparse
 import os
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, List, Dict
 import torch
 
 
@@ -29,12 +29,24 @@ class TransformersModel(ModelInterface):
         """Load the transformer model and tokenizer."""
         try:
             from transformers import AutoTokenizer, AutoModelForCausalLM
-            
+
             print(f"Loading {self.model_name}...")
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            self.model = AutoModelForCausalLM.from_pretrained(self.model_name)
+            # Many modern chat models (e.g. Qwen) require trust_remote_code
+            # to load custom architectures/tokenizers.
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.model_name,
+                trust_remote_code=True,
+            )
+            # Try to place the model appropriately if CUDA is available.
+            kwargs = {"trust_remote_code": True}
+            if torch.cuda.is_available():
+                kwargs.update({"device_map": "auto"})
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_name,
+                **kwargs,
+            )
             print("Model loaded!")
-            
+
         except Exception as e:
             print(f"Failed to load model: {e}")
             self.model = None
@@ -92,6 +104,57 @@ class EchoModel(ModelInterface):
         return f"{self.prefix}{message}"
 
 
+class LlamaCppModel(ModelInterface):
+    """llama.cpp backend for GGUF models (e.g., Qwen GGUF).
+
+    This uses llama-cpp-python to load a model from Hugging Face Hub via
+    `from_pretrained`, enabling the `chat_completion` interface.
+    """
+
+    def __init__(self, repo_id: str, filename: Optional[str] = None, n_ctx: int = 4096):
+        self.repo_id = repo_id
+        self.filename = filename or "qwen2.5-3b-instruct-q4_k_m.gguf"
+        self.n_ctx = n_ctx
+        self.llm = None
+        self.history: List[Dict[str, str]] = []
+        self._load_model()
+
+    def _load_model(self):
+        try:
+            from llama_cpp import Llama
+            threads = max(1, os.cpu_count() or 1)
+            print(f"Loading GGUF from {self.repo_id}/{self.filename} ...")
+            # Use built-in HF downloader; chat_format 'qwen' per llama.cpp support
+            self.llm = Llama.from_pretrained(
+                repo_id=self.repo_id,
+                filename=self.filename,
+                n_ctx=self.n_ctx,
+                n_threads=threads,
+                chat_format="qwen",
+            )
+            print("GGUF model loaded!")
+        except Exception as e:
+            print(f"Failed to load GGUF model: {e}")
+            self.llm = None
+
+    def generate_response(self, message: str) -> str:
+        if not self.llm:
+            return f"Echo: {message}"
+        # Maintain a minimal chat history
+        self.history.append({"role": "user", "content": message})
+        try:
+            result = self.llm.create_chat_completion(
+                messages=self.history,
+                temperature=0.7,
+                max_tokens=512,
+            )
+            reply = result["choices"][0]["message"]["content"].strip()
+            self.history.append({"role": "assistant", "content": reply})
+            return reply
+        except Exception as e:
+            return f"[Error generating response: {e}]"
+
+
 class ChatInterface:
     """Handles user interaction and chat flow."""
     
@@ -146,12 +209,20 @@ class ChatBotFactory:
         return os.environ.get(name, default).strip().lower() in {"1", "true", "yes"}
 
     @classmethod
-    def create_model(cls, model_name: str) -> ModelInterface:
+    def create_model(cls, model_name: str, gguf_filename: Optional[str] = None) -> ModelInterface:
         """Create appropriate model based on name or debug env flag."""
         if cls._env_flag("CHATBOT_DEBUG"):
             return EchoModel(prefix="(デバッグ) ")
         if model_name.lower() == "echo":
             return EchoModel()
+        # GGUF backend via llama.cpp if the identifier suggests GGUF
+        if model_name.lower().endswith(".gguf") or "gguf" in model_name.lower():
+            if "/" in model_name and not model_name.lower().endswith(".gguf"):
+                # Treat as repo_id for GGUF collection
+                return LlamaCppModel(repo_id=model_name, filename=gguf_filename)
+            # Otherwise assume it's a direct local/remote filename (not implemented here)
+            return LlamaCppModel(repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF", filename=gguf_filename or model_name)
+        # Fallback to transformers for non-GGUF identifiers
         return TransformersModel(model_name)
 
 
@@ -167,13 +238,12 @@ class SimpleChatBot:
     Parameters
     ----------
     model_name:
-        Name of the model backend to use.  Defaults to
-        ``"microsoft/DialoGPT-medium"`` which mirrors the command line
-        interface's behaviour.
+        Name of the model backend to use. Defaults to
+        ``"Qwen/Qwen2.5-3B-Instruct-GGUF"``.
     """
 
-    def __init__(self, model_name: str = "microsoft/DialoGPT-medium"):
-        self._model = ChatBotFactory.create_model(model_name)
+    def __init__(self, model_name: str = "Qwen/Qwen2.5-3B-Instruct-GGUF", gguf_filename: Optional[str] = None):
+        self._model = ChatBotFactory.create_model(model_name, gguf_filename=gguf_filename)
 
     def ask(self, message: str) -> str:
         """Generate a reply for ``message`` using the underlying model."""
@@ -184,9 +254,14 @@ def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Simple modular chatbot")
     parser.add_argument(
-        "--model", 
-        default="microsoft/DialoGPT-medium", 
-        help="Model to use (or 'echo' for testing)"
+        "--model",
+        default="Qwen/Qwen2.5-3B-Instruct-GGUF",
+        help="Model to use (e.g., repo 'Qwen/Qwen2.5-3B-Instruct-GGUF' or 'echo')"
+    )
+    parser.add_argument(
+        "--gguf-filename",
+        default="qwen2.5-3b-instruct-q4_k_m.gguf",
+        help="GGUF filename within the repo (for llama.cpp backend)"
     )
     return parser.parse_args()
 
@@ -195,7 +270,7 @@ def main():
     """Main entry point."""
     args = parse_args()
     
-    model = ChatBotFactory.create_model(args.model)
+    model = ChatBotFactory.create_model(args.model, gguf_filename=args.gguf_filename)
     chat = ChatInterface(model)
     chat.start()
 
