@@ -1,10 +1,19 @@
-"""Refactored modular chatbot with separation of concerns."""
+"""Lightweight modular chatbot with unified prompt handling.
+
+This refactor simplifies the original implementation by:
+- Unifying chat prompt construction across backends
+- Avoiding tensor-based history for transformers (reduces memory/device issues)
+- Streamlining backend selection in a small factory
+- Keeping backward compatibility via SimpleChatBot.ask
+"""
 
 
 import argparse
 import os
 from abc import ABC, abstractmethod
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
+from pathlib import Path
+import time
 import torch
 
 
@@ -30,6 +39,42 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+class ChatHistory:
+    """Minimal, backend-agnostic chat history and prompt builder.
+
+    Produces a simple bracketed prompt template compatible with plain text
+    generation backends. Example:
+
+        [SYSTEM]\n...\n[USER]\nHi\n[ASSISTANT]\nHello!\n[USER]\n...
+    """
+
+    def __init__(self) -> None:
+        self.system_prompt: Optional[str] = None
+        self.turns: List[Tuple[str, str]] = []  # list of (role, content)
+
+    def set_system_prompt(self, prompt: str) -> None:
+        self.system_prompt = prompt
+
+    def reset(self) -> None:
+        self.turns.clear()
+
+    def add_user(self, content: str) -> None:
+        self.turns.append(("USER", content))
+
+    def add_assistant(self, content: str) -> None:
+        self.turns.append(("ASSISTANT", content))
+
+    def build_prompt(self, next_user: Optional[str] = None) -> str:
+        parts: List[str] = []
+        if self.system_prompt:
+            parts.append(f"[SYSTEM]\n{self.system_prompt}\n")
+        for role, content in self.turns:
+            parts.append(f"[{role}]\n{content}\n")
+        if next_user is not None:
+            parts.append(f"[USER]\n{next_user}\n[ASSISTANT]\n")
+        return "".join(parts)
+
+
 class TransformersModel(ModelInterface):
     """Hugging Face transformers model implementation."""
     
@@ -37,7 +82,7 @@ class TransformersModel(ModelInterface):
         self.model_name = model_name
         self.model = None
         self.tokenizer = None
-        self.history = None
+        self.history = ChatHistory()
         self._load_model()
         # Shared generation limit across implementations
         self.max_new_tokens = _env_int("LLM_MAX_TOKENS", 256)
@@ -70,56 +115,37 @@ class TransformersModel(ModelInterface):
             self.tokenizer = None
     
     def generate_response(self, message: str) -> str:
-        """Generate response using the loaded model."""
-        if not self.model:
+        """Generate a response using simple text prompting and decode delta."""
+        if not self.model or not self.tokenizer:
             return f"Echo: {message}"
-        
-        inputs = self._encode_input(message)
-        outputs = self._generate_output(inputs)
-        return self._decode_response(outputs, inputs)
-    
-    # --- chat-style conditioning ---
-    def set_system_prompt(self, prompt: str) -> None:
-        self.system_prompt = prompt
-        self._primed = False
 
-    def reset_history(self) -> None:
-        self.history = None
-        self._primed = False
-    
-    def _encode_input(self, message: str) -> torch.Tensor:
-        """Encode user input with history."""
-        # Apply system prompt once to prime persona/context
-        text = message
-        if getattr(self, "system_prompt", None) and not getattr(self, "_primed", False):
-            text = f"[SYSTEM]\n{self.system_prompt}\n[USER]\n{message}"
-            self._primed = True
-        inputs = self.tokenizer.encode(text + self.tokenizer.eos_token, return_tensors="pt")
-        
-        if self.history is not None:
-            inputs = torch.cat([self.history, inputs], dim=-1)
-            
-        return inputs
-    
-    def _generate_output(self, inputs: torch.Tensor) -> torch.Tensor:
-        """Generate model output."""
+        # Build prompt including prior turns; append new user turn placeholder
+        prompt = self.history.build_prompt(next_user=message)
+        input_ids = self.tokenizer.encode(prompt, return_tensors="pt")
         with torch.no_grad():
-            return self.model.generate(
-                inputs,
+            output_ids = self.model.generate(
+                input_ids,
                 max_new_tokens=self.max_new_tokens,
                 temperature=0.7,
                 do_sample=True,
                 pad_token_id=self.tokenizer.eos_token_id,
             )
+        # Decode only the newly generated tokens (answer portion)
+        gen_ids = output_ids[0, input_ids.shape[-1]:]
+        reply = self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+        # Update history
+        self.history.add_user(message)
+        self.history.add_assistant(reply)
+        return reply
     
-    def _decode_response(self, outputs: torch.Tensor, inputs: torch.Tensor) -> str:
-        """Decode and clean the response."""
-        self.history = outputs
-        response = self.tokenizer.decode(
-            outputs[:, inputs.shape[-1]:][0], 
-            skip_special_tokens=True
-        )
-        return response.strip()
+    # --- chat-style conditioning ---
+    def set_system_prompt(self, prompt: str) -> None:
+        self.history.set_system_prompt(prompt)
+
+    def reset_history(self) -> None:
+        self.history.reset()
+    
+    # Remove tensor-history specific helpers in favor of ChatHistory
 
 
 class EchoModel(ModelInterface):
@@ -228,22 +254,42 @@ class OpenVINOModel(ModelInterface):
         self.device = device or os.environ.get("OPENVINO_DEVICE", "CPU")
         self.max_new_tokens = _env_int("LLM_MAX_TOKENS", 256)
 
-        self._pipe = None
-        self._cfg = None
+        self._pipe = None           # TextGeneration or LLM fallback
+        self._cfg = None            # GenerationConfig for TextGeneration
+        self._ov_pipe = None        # LLMPipeline for GGUF + Tokenizer path
+        self._ov_cfg = None         # GenerationConfig for LLMPipeline
+        self._ov_chat_started = False
         self._mode = ""  # "llm" for GGUF, "textgen" for OV IR
-        self._context = ""
-        self._primed = False
-        self.system_prompt: Optional[str] = None
+        self._history = ChatHistory()
         self._load_model()
 
     def _load_model(self) -> None:
         try:
-            # Lazy imports based on mode to avoid ImportError for unavailable APIs
+            # Prefer LLMPipeline(Tokenzier) for GGUF if available; fallback to LLM
             if self.model_path.lower().endswith(".gguf"):
-                from openvino_genai import LLM  # type: ignore
-                print(f"Loading OpenVINO GenAI LLM (GGUF) from {self.model_path} ...")
-                self._pipe = LLM(self.model_path)
-                self._mode = "llm"
+                try:
+                    from openvino_genai import Tokenizer, LLMPipeline, GenerationConfig  # type: ignore
+                    gguf_path = Path(self.model_path).resolve()
+                    output_dir = gguf_path.parent.resolve()
+                    ov_tok_xml = (output_dir / "openvino_tokenizer.xml").resolve()
+                    if not ov_tok_xml.exists():
+                        print(
+                            f"OpenVINO tokenizer not found in {output_dir}. If generation fails, convert it first."
+                        )
+                    print(f"Loading OpenVINO LLMPipeline from GGUF: {gguf_path} on {self.device} ...")
+                    tokenizer = Tokenizer(str(output_dir))
+                    self._ov_pipe = LLMPipeline(str(gguf_path), tokenizer, self.device)
+                    cfg = GenerationConfig()
+                    cfg.max_new_tokens = self.max_new_tokens
+                    self._ov_cfg = cfg
+                    self._mode = "llm"
+                except Exception as e:
+                    # Fallback to legacy LLM API
+                    from openvino_genai import LLM  # type: ignore
+                    print(f"LLMPipeline init failed ({e}); falling back to LLM...")
+                    print(f"Loading OpenVINO GenAI LLM (GGUF) from {self.model_path} ...")
+                    self._pipe = LLM(self.model_path)
+                    self._mode = "llm"
             else:
                 # TextGeneration path (OV IR); GenerationConfig may vary by version
                 try:
@@ -275,46 +321,44 @@ class OpenVINOModel(ModelInterface):
 
     # --- chat-style conditioning ---
     def set_system_prompt(self, prompt: str) -> None:
-        self.system_prompt = prompt
-        self._primed = False
+        self._history.set_system_prompt(prompt)
 
     def reset_history(self) -> None:
-        self._context = ""
-        self._primed = False
+        self._history.reset()
 
     def _build_prompt(self, message: str) -> str:
-        # Mimic a simple chat-style format. If the model was exported with a
-        # chat template, GenAI may apply it; otherwise this basic prompting is used.
-        if self.system_prompt and not self._primed:
-            self._context += f"[SYSTEM]\n{self.system_prompt}\n"
-            self._primed = True
-        # Append new user turn
-        prompt = f"{self._context}[USER]\n{message}\n[ASSISTANT]\n"
-        return prompt
-
-    def _update_context(self, user_message: str, assistant_reply: str) -> None:
-        self._context += f"[USER]\n{user_message}\n[ASSISTANT]\n{assistant_reply}\n"
+        return self._history.build_prompt(next_user=message)
 
     def generate_response(self, message: str) -> str:
-        if self._pipe is None or self._cfg is None:
+        if self._pipe is None and self._ov_pipe is None:
             return f"Echo: {message}"
 
         prompt = self._build_prompt(message)
         try:
-            if self._mode == "llm":
+            if self._ov_pipe is not None:
+                if not self._ov_chat_started:
+                    self._ov_pipe.start_chat()
+                    self._ov_chat_started = True
+                cfg = self._ov_cfg
+                out = self._ov_pipe.generate(prompt, cfg) if cfg is not None else self._ov_pipe.generate(prompt)
+                reply_text = str(out).strip()
+            elif self._mode == "llm":
                 out = self._pipe.generate(prompt)
+                reply_text = str(out).strip()
             else:
                 # Some versions accept a config object; others accept kwargs
                 if self._cfg is not None:
                     out = self._pipe.generate(prompt, self._cfg)
                 else:
                     out = self._pipe.generate(prompt)
+                reply_text = str(out).strip()
         except Exception as e:
             return f"[OpenVINO generation error: {e}]"
 
         # If the pipeline returns full text, strip the prompt prefix to get the reply.
-        reply = out[len(prompt):].strip() if isinstance(out, str) and out.startswith(prompt) else str(out).strip()
-        self._update_context(message, reply)
+        reply = reply_text[len(prompt):].strip() if reply_text.startswith(prompt) else reply_text
+        self._history.add_user(message)
+        self._history.add_assistant(reply)
         return reply
 
 
@@ -373,40 +417,38 @@ class ChatBotFactory:
 
     @classmethod
     def create_model(cls, model_name: str, gguf_filename: Optional[str] = None, backend: Optional[str] = None) -> ModelInterface:
-        """Create appropriate model based on name or debug env flag."""
-        if cls._env_flag("CHATBOT_DEBUG"):
-            return EchoModel(prefix="(debug) ")
-        if model_name.lower() == "echo":
-            return EchoModel()
-        # Optional explicit backend via arg or env var LLM_BACKEND
-        backend_choice = (backend or os.environ.get("LLM_BACKEND", "auto")).strip().lower()
-        if backend_choice in {"openvino", "llama", "transformers"}:
-            if backend_choice == "openvino":
-                ov_path = (
-                    model_name.split(":", 1)[1].strip()
-                    if model_name.lower().startswith("openvino:")
-                    else model_name
-                )
-                return OpenVINOModel(model_path=ov_path)
-            if backend_choice == "llama":
-                if "/" in model_name and not model_name.lower().endswith(".gguf"):
-                    return LlamaCppModel(repo_id=model_name, filename=gguf_filename)
-                return LlamaCppModel(repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF", filename=gguf_filename or model_name)
-            # transformers
-            return TransformersModel(model_name)
-        # OpenVINO backend via openvino-genai using scheme: openvino:<path>
-        if model_name.lower().startswith("openvino:"):
-            ov_path = model_name.split(":", 1)[1].strip()
+        """Select and build a model with straightforward rules.
+
+        Priority:
+        1) CHATBOT_DEBUG -> Echo
+        2) Explicit backend arg/env overrides detection
+        3) URL-scheme-style or filename-based hints
+        4) Default to transformers
+        """
+        name = (model_name or "").strip()
+        if cls._env_flag("CHATBOT_DEBUG") or name.lower() == "echo":
+            return EchoModel(prefix="(debug) " if name.lower() != "echo" else "Echo: ")
+
+        choice = (backend or os.environ.get("LLM_BACKEND", "auto")).strip().lower()
+        if choice == "openvino":
+            ov_path = name.split(":", 1)[1].strip() if name.lower().startswith("openvino:") else name
             return OpenVINOModel(model_path=ov_path)
-        # GGUF backend via llama.cpp if the identifier suggests GGUF
-        if model_name.lower().endswith(".gguf") or "gguf" in model_name.lower():
-            if "/" in model_name and not model_name.lower().endswith(".gguf"):
-                # Treat as repo_id for GGUF collection
-                return LlamaCppModel(repo_id=model_name, filename=gguf_filename)
-            # Otherwise assume it's a direct local/remote filename (not implemented here)
-            return LlamaCppModel(repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF", filename=gguf_filename or model_name)
-        # Fallback to transformers for non-GGUF identifiers
-        return TransformersModel(model_name)
+        if choice == "llama":
+            if "/" in name and not name.lower().endswith(".gguf"):
+                return LlamaCppModel(repo_id=name, filename=gguf_filename)
+            return LlamaCppModel(repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF", filename=gguf_filename or name)
+        if choice == "transformers":
+            return TransformersModel(name)
+
+        # Auto-detect
+        lname = name.lower()
+        if lname.startswith("openvino:"):
+            return OpenVINOModel(model_path=name.split(":", 1)[1].strip())
+        if lname.endswith(".gguf") or "gguf" in lname:
+            if "/" in name and not lname.endswith(".gguf"):
+                return LlamaCppModel(repo_id=name, filename=gguf_filename)
+            return LlamaCppModel(repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF", filename=gguf_filename or name)
+        return TransformersModel(name)
 
 
 # Shared model cache for quick reuse across instances
