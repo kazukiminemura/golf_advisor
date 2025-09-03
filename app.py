@@ -8,8 +8,9 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Request, UploadFile, File
+from fastapi import FastAPI, Request, UploadFile, File, Response
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
+import base64
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
@@ -22,6 +23,28 @@ from golf_swing_compare import (
 from simple_chatbot import SimpleChatBot
 
 app = FastAPI()
+
+# Work around Windows Proactor event loop issues causing noisy
+# ConnectionResetError stack traces when clients disconnect abruptly.
+# The Selector policy is more compatible with common libraries on Windows.
+if os.name == "nt":
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception:
+        pass
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Serve a tiny in-memory favicon to prevent 404s.
+
+    Replace this with a real icon by placing `static/favicon.ico` and
+    changing this route to return that file if desired.
+    """
+    tiny_png_b64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO3rN5cAAAAASUVORK5CYII="
+    )
+    return Response(content=base64.b64decode(tiny_png_b64), media_type="image/png")
 
 # Mount static files (equivalent to Flask's static folder)
 app.mount("/static", StaticFiles(directory="static"), name="static")
