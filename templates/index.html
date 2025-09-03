@@ -221,8 +221,8 @@
     const HAS_RESULTS = {{ 'true' if has_results else 'false' }};
     const CHATBOT_ENABLED = {{ 'true' if chatbot_enabled else 'false' }};
     const CURRENT_DEVICE = '{{ device }}';
-    const REF_KP_URL = '{{ url_for('static', filename=ref_kp_name) }}';
-    const CUR_KP_URL = '{{ url_for('static', filename=cur_kp_name) }}';
+    const REF_KP_URL = '{{ url_for('static', path=ref_kp_name) }}';
+    const CUR_KP_URL = '{{ url_for('static', path=cur_kp_name) }}';
 
     let chatbotReady = false;
 

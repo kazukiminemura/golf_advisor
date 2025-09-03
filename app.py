@@ -4,11 +4,14 @@ import psutil
 import asyncio
 import platform
 import subprocess
+import logging
 from pathlib import Path
-from werkzeug.utils import secure_filename
-from flask import Flask, request, jsonify, render_template, send_from_directory
-from fastapi import FastAPI
-from fastapi.middleware.wsgi import WSGIMiddleware
+from typing import Optional
+
+from fastapi import FastAPI, Request, UploadFile, File
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 
 from golf_swing_compare import (
     compare_swings,
@@ -18,9 +21,21 @@ from golf_swing_compare import (
 )
 from simple_chatbot import SimpleChatBot
 
-flask_app = Flask(__name__)
 app = FastAPI()
-app.mount("/", WSGIMiddleware(flask_app))
+
+# Mount static files (equivalent to Flask's static folder)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+logger = logging.getLogger("uvicorn.error")
+
+
+def _safe_filename(name: str) -> str:
+    """Return a filesystem-safe filename (basename, no path separators)."""
+    # Keep only the final component and strip dangerous characters
+    base = Path(name).name
+    # Replace path-unfriendly characters
+    return "".join(c for c in base if c.isalnum() or c in {"_", "-", ".", " "}).strip()
 
 
 def _env_flag(name: str, default: str = "") -> bool:
@@ -167,39 +182,39 @@ def _init_chatbot_sync() -> bool:
     global bot, messages, ref_keypoints, cur_keypoints, score
     
     if not is_chatbot_enabled():
-        flask_app.logger.info("Chatbot is disabled by configuration")
+        logger.info("Chatbot is disabled by configuration")
         bot = None
         messages.clear()
         return False
         
     if bot is not None:
-        flask_app.logger.info("Chatbot already initialized")
+        logger.info("Chatbot already initialized")
         return True  # Already initialized
         
     # Check if all required data is available
     if ref_keypoints is None:
-        flask_app.logger.warning("Reference keypoints not available for chatbot initialization")
+        logger.warning("Reference keypoints not available for chatbot initialization")
         return False
     if cur_keypoints is None:
-        flask_app.logger.warning("Current keypoints not available for chatbot initialization")
+        logger.warning("Current keypoints not available for chatbot initialization")
         return False
     if score is None:
-        flask_app.logger.warning("Score not available for chatbot initialization")
+        logger.warning("Score not available for chatbot initialization")
         return False
     # Avoid initializing the chatbot while analysis is still producing outputs
     if analysis_running:
-        flask_app.logger.info("Deferring chatbot initialization until analysis completes")
+        logger.info("Deferring chatbot initialization until analysis completes")
         return False
     
     try:
-        flask_app.logger.info("Initializing chatbot with keypoints and score")
+        logger.info("Initializing chatbot with keypoints and score")
         bot = EnhancedSwingChatBot(ref_keypoints, cur_keypoints, score)
         initial_msg = bot.initial_message()
         messages = [{"role": "assistant", "content": initial_msg}]
-        flask_app.logger.info("Chatbot initialized successfully")
+        logger.info("Chatbot initialized successfully")
         return True
     except Exception as exc:
-        flask_app.logger.exception("Failed to initialize chatbot: %s", exc)
+        logger.exception("Failed to initialize chatbot: %s", exc)
         bot = None
         messages.clear()
         return False
@@ -224,20 +239,20 @@ def _prepare_videos_sync() -> None:
         and REF_KP_JSON.exists()
         and CUR_KP_JSON.exists()
     ):
-        flask_app.logger.info("Videos already processed, skipping")
+        logger.info("Videos already processed, skipping")
         return  # Skip processing if results already exist
 
     analysis_running = True
     try:
         import cv2
-        flask_app.logger.info("Starting video analysis...")
-        flask_app.logger.info(
+        logger.info("Starting video analysis...")
+        logger.info(
             f"ENABLE_CHATBOT setting: {is_chatbot_enabled()}"
         )
-        flask_app.logger.info(f"Reference video: {REF_VIDEO}, exists: {REF_VIDEO.exists()}")
-        flask_app.logger.info(f"Current video: {CUR_VIDEO}, exists: {CUR_VIDEO.exists()}")
-        flask_app.logger.info(f"Model path: {MODEL_XML}")
-        flask_app.logger.info(f"Device: {DEVICE}")
+        logger.info(f"Reference video: {REF_VIDEO}, exists: {REF_VIDEO.exists()}")
+        logger.info(f"Current video: {CUR_VIDEO}, exists: {CUR_VIDEO.exists()}")
+        logger.info(f"Model path: {MODEL_XML}")
+        logger.info(f"Device: {DEVICE}")
         
         # Check video files exist
         if not REF_VIDEO.exists():
@@ -246,59 +261,59 @@ def _prepare_videos_sync() -> None:
             raise FileNotFoundError(f"Current video not found: {CUR_VIDEO}")
         
         # Extract keypoints for reference and current videos
-        flask_app.logger.info("Extracting keypoints from reference video...")
+        logger.info("Extracting keypoints from reference video...")
         try:
             ref_keypoints = extract_keypoints(REF_VIDEO, MODEL_XML, DEVICE)
-            flask_app.logger.info(f"Reference keypoints extracted: {len(ref_keypoints)} frames")
+            logger.info(f"Reference keypoints extracted: {len(ref_keypoints)} frames")
         except Exception as e:
-            flask_app.logger.error(f"Failed to extract reference keypoints: {e}")
+            logger.error(f"Failed to extract reference keypoints: {e}")
             raise
             
-        flask_app.logger.info("Extracting keypoints from current video...")
+        logger.info("Extracting keypoints from current video...")
         try:
             cur_keypoints = extract_keypoints(CUR_VIDEO, MODEL_XML, DEVICE)
-            flask_app.logger.info(f"Current keypoints extracted: {len(cur_keypoints)} frames")
+            logger.info(f"Current keypoints extracted: {len(cur_keypoints)} frames")
         except Exception as e:
-            flask_app.logger.error(f"Failed to extract current keypoints: {e}")
+            logger.error(f"Failed to extract current keypoints: {e}")
             raise
 
         # Retrieve frame rates for later JSON output
-        flask_app.logger.info("Getting video frame rates...")
+        logger.info("Getting video frame rates...")
         ref_cap = cv2.VideoCapture(str(REF_VIDEO))
         ref_fps = ref_cap.get(cv2.CAP_PROP_FPS) or 30.0
         ref_cap.release()
         cur_cap = cv2.VideoCapture(str(CUR_VIDEO))
         cur_fps = cur_cap.get(cv2.CAP_PROP_FPS) or 30.0
         cur_cap.release()
-        flask_app.logger.info(f"Frame rates - Reference: {ref_fps}, Current: {cur_fps}")
+        logger.info(f"Frame rates - Reference: {ref_fps}, Current: {cur_fps}")
 
         # Compute similarity score and produce annotated videos/JSON files
-        flask_app.logger.info("Computing swing similarity score...")
+        logger.info("Computing swing similarity score...")
         try:
             score, _ = compare_swings(ref_keypoints, cur_keypoints)
-            flask_app.logger.info(f"Computed score: {score}")
+            logger.info(f"Computed score: {score}")
         except Exception as e:
-            flask_app.logger.error(f"Failed to compute swing score: {e}")
+            logger.error(f"Failed to compute swing score: {e}")
             raise
         
-        flask_app.logger.info("Creating annotated videos...")
+        logger.info("Creating annotated videos...")
         try:
             _annotate_video(REF_VIDEO, ref_keypoints, OUT_REF)
-            flask_app.logger.info("Reference video annotated")
+            logger.info("Reference video annotated")
             _annotate_video(CUR_VIDEO, cur_keypoints, OUT_CUR)
-            flask_app.logger.info("Current video annotated")
+            logger.info("Current video annotated")
             _save_keypoints_json(ref_keypoints, ref_fps, REF_KP_JSON)
-            flask_app.logger.info("Reference keypoints JSON saved")
+            logger.info("Reference keypoints JSON saved")
             _save_keypoints_json(cur_keypoints, cur_fps, CUR_KP_JSON)
-            flask_app.logger.info("Current keypoints JSON saved")
+            logger.info("Current keypoints JSON saved")
         except Exception as e:
-            flask_app.logger.error(f"Failed to create annotated videos: {e}")
+            logger.error(f"Failed to create annotated videos: {e}")
             raise
         
-        flask_app.logger.info("Video analysis completed successfully")
+        logger.info("Video analysis completed successfully")
         
     except Exception as e:
-        flask_app.logger.exception(f"Critical error during video analysis: {e}")
+        logger.exception(f"Critical error during video analysis: {e}")
         # Clean up partial results
         score = None
         ref_keypoints = None
@@ -307,7 +322,7 @@ def _prepare_videos_sync() -> None:
             if p.exists():
                 try:
                     p.unlink()
-                    flask_app.logger.info(f"Cleaned up partial result: {p}")
+                    logger.info(f"Cleaned up partial result: {p}")
                 except Exception:
                     pass
         raise
@@ -331,30 +346,33 @@ def _results_ready() -> bool:
     return score is not None and REF_KP_JSON.exists() and CUR_KP_JSON.exists()
 
 
-@flask_app.route("/")
-def index():
-    has_results = _results_ready()  # Determine if analysis results exist
-    return render_template(
+@app.get("/", response_class=HTMLResponse)
+def index(request: Request):
+    has_results = _results_ready()
+    return templates.TemplateResponse(
         "index.html",
-        score=score,
-        ref_video_name=REF_VIDEO.name,
-        cur_video_name=CUR_VIDEO.name,
-        ref_kp_name=REF_KP_JSON.name,
-        cur_kp_name=CUR_KP_JSON.name,
-        has_results=has_results,
-        chatbot_enabled=is_chatbot_enabled(),
-        device=DEVICE,
+        {
+            "request": request,
+            "score": score,
+            "ref_video_name": REF_VIDEO.name,
+            "cur_video_name": CUR_VIDEO.name,
+            "ref_kp_name": REF_KP_JSON.name,
+            "cur_kp_name": CUR_KP_JSON.name,
+            "has_results": has_results,
+            "chatbot_enabled": is_chatbot_enabled(),
+            "device": DEVICE,
+        },
     )
 
-@flask_app.route("/chat_messages", methods=["GET", "POST"])
-def chat_messages_handler():
+@app.api_route("/chat_messages", methods=["GET", "POST"])
+async def chat_messages_handler(request: Request):
     """Handle messages for the general-purpose chatbot."""
     global general_bot, general_messages
     if request.method == "POST":
-        data = request.get_json() or {}
+        data = (await request.json()) or {}
         user_msg = data.get("message", "").strip()
         if not user_msg:
-            return jsonify({"reply": ""})
+            return JSONResponse({"reply": ""})
         if general_bot is None:
             general_bot = SimpleChatBot()
         general_messages.append({"role": "user", "content": user_msg})
@@ -364,29 +382,29 @@ def chat_messages_handler():
         general_messages.append({"role": "assistant", "content": reply})
         if len(general_messages) > MAX_MESSAGES:
             general_messages[:] = general_messages[-MAX_MESSAGES:]
-        return jsonify({"reply": reply})
+        return JSONResponse({"reply": reply})
     else:
-        return jsonify(general_messages)
+        return JSONResponse(general_messages)
 
-@flask_app.route("/messages", methods=["GET", "POST"])
-def message_handler():
+@app.api_route("/messages", methods=["GET", "POST"])
+async def message_handler(request: Request):
     if not is_chatbot_enabled():
         if request.method == "POST":
-            return jsonify({"reply": "チャットボットは無効化されています。"})
-        return jsonify([])
+            return JSONResponse({"reply": "チャットボットは無効化されています。"})
+        return JSONResponse([])
 
     if request.method == "POST":
-        data = request.get_json() or {}
+        data = (await request.json()) or {}
         user_msg = data.get("message", "").strip()
         
         if not user_msg:
-            return jsonify({"reply": "メッセージを入力してください。"})
+            return JSONResponse({"reply": "メッセージを入力してください。"})
 
         # Try to initialize the chatbot if it's not ready
         if bot is None:
             success = _init_chatbot_sync()
             if not success:
-                return jsonify({"reply": "チャットボットは準備中です。まず動画を分析してください。"})
+                return JSONResponse({"reply": "チャットボットは準備中です。まず動画を分析してください。"})
 
         try:
             # Add user message to conversation history
@@ -402,27 +420,27 @@ def message_handler():
             if len(messages) > MAX_MESSAGES:
                 messages[:] = messages[-MAX_MESSAGES:]
             
-            return jsonify({"reply": reply})
+            return JSONResponse({"reply": reply})
             
         except Exception as exc:
-            flask_app.logger.exception("Error in chatbot conversation: %s", exc)
-            return jsonify({"reply": "申し訳ございませんが、エラーが発生しました。もう一度お試しください。"})
+            logger.exception("Error in chatbot conversation: %s", exc)
+            return JSONResponse({"reply": "申し訳ございませんが、エラーが発生しました。もう一度お試しください。"})
     else:
         # GET request - return conversation history or initialization message
         if bot is not None:
-            return jsonify(messages)
+            return JSONResponse(messages)
         else:
             # Check if video analysis is complete but chatbot not initialized
             analysis_complete = (not analysis_running) and _results_ready()
             if analysis_complete:
-                return jsonify([
+                return JSONResponse([
                     {
                         "role": "assistant", 
                         "content": "動画分析が完了しました。チャットボットの準備ができました！質問をどうぞ。"
                     }
                 ])
             else:
-                return jsonify([
+                return JSONResponse([
                     {
                         "role": "assistant",
                         "content": "チャットボットは準備中です。まず動画を分析してください。",
@@ -430,39 +448,50 @@ def message_handler():
                 ])
 
 
-@flask_app.route("/videos/<path:filename>")
-def serve_video(filename):
+@app.get("/videos/{filename:path}")
+def serve_video(filename: str):
     """Serve video files from the data directory."""
-    return send_from_directory("data", filename)  # Flask helper to send files
+    safe = Path("data") / Path(filename)
+    # Prevent path traversal outside data dir
+    try:
+        safe_path = safe.resolve(strict=True)
+        data_root = Path("data").resolve()
+        if data_root not in safe_path.parents and safe_path != data_root:
+            raise RuntimeError("Invalid path")
+    except Exception:
+        return JSONResponse({"error": "file not found"}, status_code=404)
+    return FileResponse(str(safe_path))
 
 
-@flask_app.route("/list_videos")
+@app.get("/list_videos")
 def list_videos():
     """Return available mp4 files in the data directory."""
     files = sorted(p.name for p in Path("data").glob("*.mp4"))  # Find mp4 files
-    return jsonify(files)
+    return JSONResponse(files)
 
 
-@flask_app.route("/upload_videos", methods=["POST"])
-def upload_videos():
+@app.post("/upload_videos")
+async def upload_videos(reference: Optional[UploadFile] = File(None), current: Optional[UploadFile] = File(None)):
     """Upload video files to the data directory."""
     data_dir = Path("data")  # Directory where videos are stored
     data_dir.mkdir(exist_ok=True)  # Ensure directory exists
     saved = {}
-    ref = request.files.get("reference")  # Reference video from request
-    cur = request.files.get("current")  # Current video from request
-    if ref:
-        name = secure_filename(ref.filename)  # Sanitize filename
-        ref.save(data_dir / name)  # Save uploaded file
+    if reference is not None:
+        name = _safe_filename(reference.filename or "reference.mp4")
+        dest = data_dir / name
+        with dest.open("wb") as f:
+            f.write(await reference.read())
         saved["reference_file"] = name
-    if cur:
-        name = secure_filename(cur.filename)  # Sanitize filename
-        cur.save(data_dir / name)  # Save uploaded file
+    if current is not None:
+        name = _safe_filename(current.filename or "current.mp4")
+        dest = data_dir / name
+        with dest.open("wb") as f:
+            f.write(await current.read())
         saved["current_file"] = name
-    return jsonify(saved)
+    return JSONResponse(saved)
 
 
-@flask_app.route("/system_usage")
+@app.get("/system_usage")
 def system_usage():
     """Return current CPU, GPU and NPU utilization percentages."""
     cpu = psutil.cpu_percent()
@@ -476,7 +505,7 @@ def system_usage():
     memory_used_gb = memory.used / (1024**3)
     memory_total_gb = memory.total / (1024**3)
     
-    return jsonify({
+    return JSONResponse({
         "cpu": cpu, 
         "gpu": gpu, 
         "npu": npu,
@@ -487,18 +516,18 @@ def system_usage():
     })
 
 
-@flask_app.route("/analyze", methods=["POST"])
+@app.post("/analyze")
 async def analyze():
     """Run pose analysis and return the score."""
     try:
-        flask_app.logger.info(
+        logger.info(
             f"Starting analysis with ENABLE_CHATBOT={is_chatbot_enabled()}"
         )
         
         # Clear any existing chatbot to free memory
         global bot, messages
         if bot is not None:
-            flask_app.logger.info("Clearing existing chatbot to free memory")
+            logger.info("Clearing existing chatbot to free memory")
             bot = None
             messages.clear()
             
@@ -507,38 +536,38 @@ async def analyze():
         # After video processing, try to initialize chatbot automatically
         # Only if chatbot is enabled and video processing succeeded
         if is_chatbot_enabled() and score is not None and not LAZY_CHATBOT_INIT:
-            flask_app.logger.info("Attempting to initialize chatbot after successful analysis")
+            logger.info("Attempting to initialize chatbot after successful analysis")
             try:
                 success = await init_chatbot()
                 if success:
-                    flask_app.logger.info("Chatbot automatically initialized after analysis")
+                    logger.info("Chatbot automatically initialized after analysis")
                 else:
-                    flask_app.logger.warning("Failed to automatically initialize chatbot after analysis")
+                    logger.warning("Failed to automatically initialize chatbot after analysis")
             except Exception as chatbot_exc:
-                flask_app.logger.error(f"Chatbot initialization failed: {chatbot_exc}")
+                logger.error(f"Chatbot initialization failed: {chatbot_exc}")
                 # Don't fail the whole analysis if chatbot init fails
         
         if score is None:
-            return jsonify({"error": "動画分析に失敗しました。ログを確認してください。"}), 500
+            return JSONResponse({"error": "動画分析に失敗しました。ログを確認してください。"}, status_code=500)
             
-        return jsonify({"score": score, "analysis_complete": True})  # Send back computed score with status
+        return JSONResponse({"score": score, "analysis_complete": True})  # Send back computed score with status
         
     except Exception as exc:
-        flask_app.logger.exception("Error during analysis: %s", exc)
+        logger.exception("Error during analysis: %s", exc)
         error_msg = str(exc)
         if "FileNotFoundError" in error_msg:
-            return jsonify({"error": f"動画ファイルが見つかりません: {error_msg}"}), 400
+            return JSONResponse({"error": f"動画ファイルが見つかりません: {error_msg}"}, status_code=400)
         elif "extract_keypoints" in error_msg:
-            return jsonify({"error": "キーポイント抽出に失敗しました。モデルファイルを確認してください。"}), 500
+            return JSONResponse({"error": "キーポイント抽出に失敗しました。モデルファイルを確認してください。"}, status_code=500)
         else:
-            return jsonify({"error": f"分析中にエラーが発生しました: {error_msg}"}), 500
+            return JSONResponse({"error": f"分析中にエラーが発生しました: {error_msg}"}, status_code=500)
     finally:
         # Ensure running flag is cleared even if exceptions occur
         global analysis_running
         analysis_running = False
 
 
-@flask_app.route("/init_chatbot", methods=["POST"])
+@app.post("/init_chatbot")
 async def init_chatbot_route():
     """Initialize the chatbot after videos are processed."""
     try:
@@ -547,39 +576,35 @@ async def init_chatbot_route():
         if analysis_running:
             # Respond with 202 so clients know to retry later without logging
             # a misleading Bad Request.
-            return (
-                jsonify(
-                    {
-                        "status": "pending",
-                        "message": "動画分析中のため、チャットボットの初期化は完了後に実行してください。",
-                    },
-                ),
-                202,
+            return JSONResponse(
+                {
+                    "status": "pending",
+                    "message": "動画分析中のため、チャットボットの初期化は完了後に実行してください。",
+                },
+                status_code=202,
             )
         success = await init_chatbot()  # Initialize chatbot separately
         if success:
-            return jsonify({"status": "ok", "message": "チャットボットの準備ができました。"})
+            return JSONResponse({"status": "ok", "message": "チャットボットの準備ができました。"})
         else:
             # Missing prerequisites (e.g. keypoints) shouldn't surface as a
             # 400 error in the logs; indicate initialization is pending.
-            return (
-                jsonify(
-                    {
-                        "status": "pending",
-                        "message": "チャットボットの初期化に必要なデータが不足しています。",
-                    }
-                ),
-                202,
+            return JSONResponse(
+                {
+                    "status": "pending",
+                    "message": "チャットボットの初期化に必要なデータが不足しています。",
+                },
+                status_code=202,
             )
     except Exception as exc:
-        flask_app.logger.exception("Error initializing chatbot: %s", exc)
-        return jsonify({"status": "error", "message": "チャットボットの初期化中にエラーが発生しました。"}), 500
+        logger.exception("Error initializing chatbot: %s", exc)
+        return JSONResponse({"status": "error", "message": "チャットボットの初期化中にエラーが発生しました。"}, status_code=500)
 
 
-@flask_app.route("/set_videos", methods=["POST"])
-def set_videos():
+@app.post("/set_videos")
+async def set_videos(request: Request):
     """Select videos from local files and clear previous analysis."""
-    data = request.get_json() or {}
+    data = (await request.json()) or {}
     ref_file = data.get("reference_file")
     cur_file = data.get("current_file")
     device = (data.get("device") or "").upper()
@@ -605,13 +630,13 @@ def set_videos():
         if p.exists():
             p.unlink()  # Remove previous output files
             
-    flask_app.logger.info(
+    logger.info(
         f"Videos set to: ref={REF_VIDEO.name}, cur={CUR_VIDEO.name}, device={DEVICE}"
     )
-    return jsonify({"status": "ok", "device": DEVICE})
+    return JSONResponse({"status": "ok", "device": DEVICE})
 
 
-@flask_app.route("/chatbot_status")
+@app.get("/chatbot_status")
 def chatbot_status():
     """Get current chatbot status."""
     enabled = is_chatbot_enabled()
@@ -622,7 +647,7 @@ def chatbot_status():
         else "チャットボットは準備中です。まず動画を分析してください。" if enabled
         else "チャットボットは無効化されています。"
     )
-    return jsonify({
+    return JSONResponse({
         "enabled": enabled,
         "initialized": bot is not None,
         "ready_to_init": analysis_complete,

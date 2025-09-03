@@ -6,7 +6,7 @@ numpy
 transformers
 torch
 llama-cpp-python
-Pillow
-sentencepiece
 psutil
 pynvml
+jinja2
+aiofiles
