@@ -265,59 +265,38 @@ class OpenVINOModel(ModelInterface):
 
     def _load_model(self) -> None:
         try:
-            # Prefer LLMPipeline(Tokenzier) for GGUF if available; fallback to LLM
+            from pathlib import Path
             if self.model_path.lower().endswith(".gguf"):
-                try:
-                    from openvino_genai import Tokenizer, LLMPipeline, GenerationConfig  # type: ignore
-                    gguf_path = Path(self.model_path).resolve()
-                    output_dir = gguf_path.parent.resolve()
-                    ov_tok_xml = (output_dir / "openvino_tokenizer.xml").resolve()
-                    if not ov_tok_xml.exists():
-                        print(
-                            f"OpenVINO tokenizer not found in {output_dir}. If generation fails, convert it first."
-                        )
-                    print(f"Loading OpenVINO LLMPipeline from GGUF: {gguf_path} on {self.device} ...")
-                    tokenizer = Tokenizer(str(output_dir))
-                    self._ov_pipe = LLMPipeline(str(gguf_path), tokenizer, self.device)
-                    cfg = GenerationConfig()
-                    cfg.max_new_tokens = self.max_new_tokens
-                    self._ov_cfg = cfg
-                    self._mode = "llm"
-                except Exception as e:
-                    # Fallback to legacy LLM API
-                    from openvino_genai import LLM  # type: ignore
-                    print(f"LLMPipeline init failed ({e}); falling back to LLM...")
-                    print(f"Loading OpenVINO GenAI LLM (GGUF) from {self.model_path} ...")
-                    self._pipe = LLM(self.model_path)
-                    self._mode = "llm"
+                # --- GGUF 経路: Tokenizer + LLMPipeline ---
+                from openvino_genai import Tokenizer, LLMPipeline, GenerationConfig  # type: ignore
+                gguf_path = Path(self.model_path).resolve()
+                tok_dir = gguf_path.parent  # ここに openvino_tokenizer.xml がある想定
+                if not (tok_dir / "openvino_tokenizer.xml").exists():
+                    print(f"[hint] {tok_dir} に tokenizer IR がありません。先に `convert_tokenizer` を実行してください。")
+                print(f"[OV] LLMPipeline(GGUF) loading: {gguf_path} on {self.device}")
+                tokenizer = Tokenizer(str(tok_dir))
+                pipe = LLMPipeline(str(gguf_path), tokenizer, self.device)
+                cfg = GenerationConfig()
+                cfg.max_new_tokens = self.max_new_tokens
+                self._ov_pipe, self._ov_cfg, self._mode = pipe, cfg, "llm"
             else:
-                # TextGeneration path (OV IR); GenerationConfig may vary by version
-                try:
-                    from openvino_genai import TextGeneration, GenerationConfig  # type: ignore
-                except ImportError as ie:
-                    # Provide a clearer hint for older installs lacking TextGeneration
-                    raise RuntimeError(
-                        "openvino-genai TextGeneration API not found. Install/upgrade: pip install -U openvino-genai"
-                    ) from ie
-                print(f"Loading OpenVINO TextGeneration from {self.model_path} on {self.device} ...")
+                # --- OV IR 経路: TextGeneration ---
+                from openvino_genai import TextGeneration, GenerationConfig  # type: ignore
+                print(f"[OV] TextGeneration(IR) loading: {self.model_path} on {self.device}")
                 self._pipe = TextGeneration(self.model_path, device=self.device)
                 try:
-                    self._cfg = GenerationConfig(
-                        max_new_tokens=self.max_new_tokens,
-                        temperature=0.7,
-                    )
+                    self._cfg = GenerationConfig(max_new_tokens=self.max_new_tokens, temperature=0.7)
                 except Exception:
-                    # If config class not available, proceed without it
                     self._cfg = None
                 self._mode = "textgen"
             print("OpenVINO model loaded!")
         except Exception as e:
-            print(
-                "Failed to initialize OpenVINO GenAI. Install with 'pip install openvino-genai' "
-                f"or verify the model path. Error: {e}"
-            )
-            self._pipe = None
-            self._cfg = None
+            print("Failed to init OpenVINO GenAI. Tips:\n"
+                " - `pip install -U openvino openvino-genai openvino-tokenizers`\n"
+                " - GGUFは `convert_tokenizer` 必須\n"
+                f"Error: {e}")
+            self._pipe = self._cfg = self._ov_pipe = self._ov_cfg = None
+
 
     # --- chat-style conditioning ---
     def set_system_prompt(self, prompt: str) -> None:
