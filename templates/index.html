@@ -34,6 +34,7 @@
       font-weight: bold;
     }
     .chat-status.preparing { background: #fff3cd; color: #856404; }
+    .chat-status.generating { background: #dbeafe; color: #1e40af; }
     .chat-status.ready { background: var(--intel-blue); color: #fff; }
     .chat-status.error { background: #f8d7da; color: #721c24; }
     .video-wrapper { display: flex; }
@@ -187,14 +188,14 @@
     <div class="video-wrapper">
       <div class="video-item pro">
         <video id="ref-video" controls loop>
-          <source src="{{ url_for('serve_video', filename=ref_video_name) }}" type="video/mp4">
+          <source src="{{ request.url_for('serve_video', filename=ref_video_name) }}" type="video/mp4">
           お使いのブラウザは動画再生に対応していません。
         </video>
         <canvas id="ref-canvas"></canvas>
       </div>
       <div class="video-item target">
         <video id="cur-video" controls loop>
-          <source src="{{ url_for('serve_video', filename=cur_video_name) }}" type="video/mp4">
+          <source src="{{ request.url_for('serve_video', filename=cur_video_name) }}" type="video/mp4">
           お使いのブラウザは動画再生に対応していません。
         </video>
         <canvas id="cur-canvas"></canvas>
@@ -221,8 +222,8 @@
     const HAS_RESULTS = {{ 'true' if has_results else 'false' }};
     const CHATBOT_ENABLED = {{ 'true' if chatbot_enabled else 'false' }};
     const CURRENT_DEVICE = '{{ device }}';
-    const REF_KP_URL = '{{ url_for('static', path=ref_kp_name) }}';
-    const CUR_KP_URL = '{{ url_for('static', path=cur_kp_name) }}';
+    const REF_KP_URL = '{{ request.url_for('static', path=ref_kp_name) }}';
+    const CUR_KP_URL = '{{ request.url_for('static', path=cur_kp_name) }}';
 
     let chatbotReady = false;
 
@@ -308,13 +309,24 @@
         const chatInput = document.getElementById('chat-input');
         const sendBtn = document.getElementById('send-btn');
         
-        if (status.initialized || status.analysis_complete) {
-          statusDiv.textContent = "動画分析が完了しました。チャットボットの準備ができました！";
-          statusDiv.className = "chat-status ready";
-          chatInput.disabled = false;
-          sendBtn.disabled = false;
-          chatInput.placeholder = "メッセージを入力...";
-          chatbotReady = true;
+        if (status.initialized) {
+          const box = document.getElementById('chat-messages');
+          const hasRealMsgs = box ? box.querySelectorAll('.chat-msg').length > 0 : false;
+          if (hasRealMsgs) {
+            statusDiv.textContent = "チャットボットの準備ができました！";
+            statusDiv.className = "chat-status ready";
+            chatInput.disabled = false;
+            sendBtn.disabled = false;
+            chatInput.placeholder = "メッセージを入力...";
+            chatbotReady = true;
+          } else {
+            statusDiv.textContent = "メッセージ生成中...";
+            statusDiv.className = "chat-status generating";
+            chatInput.disabled = true;
+            sendBtn.disabled = true;
+            chatbotReady = false;
+            ensureGeneratingPlaceholder();
+          }
         } else {
           statusDiv.textContent = "チャットボットは準備中です。まず動画を分析してください。";
           statusDiv.className = "chat-status preparing";
@@ -331,8 +343,25 @@
     }
 
     // --- メッセージ読み込み ---
+    function ensureGeneratingPlaceholder() {
+      const box = document.getElementById('chat-messages');
+      if (!box) return;
+      if (!document.getElementById('init-loading')) {
+        const p = document.createElement('p');
+        p.id = 'init-loading';
+        p.textContent = 'コーチ: メッセージ生成中...';
+        p.style.opacity = '0.7';
+        box.appendChild(p);
+        box.scrollTop = box.scrollHeight;
+      }
+    }
+
+    function removeGeneratingPlaceholder() {
+      const p = document.getElementById('init-loading');
+      if (p && p.parentElement) p.parentElement.removeChild(p);
+    }
+
     async function load_messages() {
-      if (!chatbotReady) return;
       try {
         const res = await fetch('/messages');
         const msgs = await res.json();
@@ -342,9 +371,13 @@
           const p = document.createElement('p');
           const prefix = m.role === 'user' ? 'あなた: ' : 'コーチ: ';
           p.textContent = prefix + m.content;
+          p.className = 'chat-msg';
           box.appendChild(p);
         });
         box.scrollTop = box.scrollHeight;
+        // Do not mark ready here; rely on status.initialized in update_chatbot_status()
+        // Only remove placeholder if messages actually arrived
+        if (msgs.length > 0) removeGeneratingPlaceholder();
       } catch (e) {
         console.error('Failed to load messages:', e);
       }
@@ -354,17 +387,13 @@
     async function init_chat() {
       await update_chatbot_status();
       if (HAS_RESULTS) {
+        // Kick off initialization; show generating state until first message arrives
         const statusDiv = document.getElementById('chat-status');
-        const chatInput = document.getElementById('chat-input');
-        const sendBtn = document.getElementById('send-btn');
-        statusDiv.textContent = "動画分析が完了しました。チャットボットの準備ができました！";
-        statusDiv.className = "chat-status ready";
-        chatInput.disabled = false;
-        sendBtn.disabled = false;
-        chatInput.placeholder = "メッセージを入力...";
-        chatbotReady = true;
+        statusDiv.textContent = "メッセージ生成中...";
+        statusDiv.className = "chat-status generating";
+        ensureGeneratingPlaceholder();
+        try { await fetch('/init_chatbot', { method: 'POST' }); } catch (_) {}
       }
-      try { await fetch('/init_chatbot', { method: 'POST' }); } catch (_) {}
       await update_chatbot_status();
       await load_messages();
     }
@@ -476,19 +505,16 @@
         return;
       }
 
-      // ✅ 成功時: フロント側で強制的に完了状態へ
+      // 成功時: UIは準備中のまま。初期応答が生成されるまで「メッセージ生成中...」
       status.textContent = '動画解析が完了しました';
       if (CHATBOT_ENABLED) {
         const statusDiv = document.getElementById('chat-status');
-        const chatInput = document.getElementById('chat-input');
-        const sendBtn = document.getElementById('send-btn');
-        statusDiv.textContent = "動画分析が完了しました。チャットボットの準備ができました！";
-        statusDiv.className = "chat-status ready";
-        chatInput.disabled = false;
-        sendBtn.disabled = false;
-        chatInput.placeholder = "メッセージを入力...";
-        chatbotReady = true;
-        load_messages().catch(() => {});
+        statusDiv.textContent = "メッセージ生成中...";
+        statusDiv.className = "chat-status generating";
+        ensureGeneratingPlaceholder();
+        try { await fetch('/init_chatbot', { method: 'POST' }); } catch (_) {}
+        await update_chatbot_status();
+        await load_messages();
       }
 
       setTimeout(() => location.reload(), 1000);
