@@ -1,0 +1,139 @@
+import { chatbotStatus, getMessages, sendMessage, initChatbot } from '../services/api.js';
+import { setStatusPreparing, setStatusGenerating, setStatusReady, setStatusError } from './statusView.js';
+
+export class ChatController {
+  constructor({ enabled, hasResults }) {
+    this.enabled = enabled;
+    this.hasResults = hasResults;
+    this.ready = false;
+    this.box = document.getElementById('chat-messages');
+    this.input = document.getElementById('chat-input');
+    this.sendBtn = document.getElementById('send-btn');
+    this.statusDiv = document.getElementById('chat-status');
+  }
+
+  ensureGeneratingPlaceholder() {
+    if (!this.box) return;
+    if (!document.getElementById('init-loading')) {
+      const p = document.createElement('p');
+      p.id = 'init-loading';
+      p.textContent = 'コーチ: メッセージ生成中...';
+      p.style.opacity = '0.7';
+      this.box.appendChild(p);
+      this.box.scrollTop = this.box.scrollHeight;
+    }
+  }
+
+  removeGeneratingPlaceholder() {
+    const p = document.getElementById('init-loading');
+    if (p && p.parentElement) p.parentElement.removeChild(p);
+  }
+
+  setInteractable(enabled) {
+    if (this.input) this.input.disabled = !enabled;
+    if (this.sendBtn) this.sendBtn.disabled = !enabled;
+  }
+
+  async updateStatus() {
+    try {
+      const status = await chatbotStatus();
+      if (status.initialized) {
+        const hasRealMsgs = this.box ? this.box.querySelectorAll('.chat-msg').length > 0 : false;
+        if (hasRealMsgs) {
+          setStatusReady(this.statusDiv, 'チャットボットの準備ができました');
+          this.setInteractable(true);
+          this.ready = true;
+        } else {
+          setStatusGenerating(this.statusDiv, 'メッセージ生成中...');
+          this.setInteractable(false);
+          this.ready = false;
+          this.ensureGeneratingPlaceholder();
+        }
+      } else {
+        setStatusPreparing(this.statusDiv);
+        this.setInteractable(false);
+        this.ready = false;
+      }
+    } catch (e) {
+      setStatusError(this.statusDiv);
+      this.ready = false;
+    }
+  }
+
+  async loadMessages() {
+    try {
+      const msgs = await getMessages();
+      if (!this.box) return;
+      this.box.innerHTML = '';
+      msgs.forEach(m => {
+        const p = document.createElement('p');
+        const prefix = m.role === 'user' ? 'あなた: ' : 'コーチ: ';
+        p.textContent = prefix + m.content;
+        p.className = 'chat-msg';
+        this.box.appendChild(p);
+      });
+      this.box.scrollTop = this.box.scrollHeight;
+      if (msgs.length > 0) this.removeGeneratingPlaceholder();
+    } catch (e) {
+      console.error('Failed to load messages:', e);
+    }
+  }
+
+  bindSend() {
+    if (!this.sendBtn || !this.input) return;
+    this.sendBtn.onclick = async () => {
+      if (!this.ready) return;
+      const text = this.input.value.trim();
+      if (!text) return;
+      const userP = document.createElement('p');
+      userP.textContent = 'あなた: ' + text;
+      this.box.appendChild(userP);
+      this.input.value = '';
+
+      const loadingP = document.createElement('p');
+      loadingP.textContent = 'コーチ: 返信中...';
+      loadingP.style.opacity = '0.6';
+      this.box.appendChild(loadingP);
+
+      try {
+        const data = await sendMessage(text);
+        this.box.removeChild(loadingP);
+        const coachP = document.createElement('p');
+        coachP.textContent = 'コーチ: ' + (data.reply || '');
+        this.box.appendChild(coachP);
+      } catch (e) {
+        this.box.removeChild(loadingP);
+        const errP = document.createElement('p');
+        errP.textContent = 'コーチ: 返答の取得に失敗しました';
+        errP.style.color = 'red';
+        this.box.appendChild(errP);
+      }
+      this.box.scrollTop = this.box.scrollHeight;
+    };
+
+    this.input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey && this.ready) {
+        e.preventDefault();
+        this.sendBtn.click();
+      }
+    });
+  }
+
+  async init() {
+    if (!this.enabled || !this.input) return; // chat panel might be hidden
+
+    await this.updateStatus();
+    if (this.hasResults) {
+      setStatusGenerating(this.statusDiv, 'メッセージ生成中...');
+      this.ensureGeneratingPlaceholder();
+      await initChatbot();
+    }
+    await this.updateStatus();
+    await this.loadMessages();
+    this.bindSend();
+
+    // background refresh
+    setInterval(() => this.updateStatus(), 5000);
+  }
+}
+
