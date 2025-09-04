@@ -7,7 +7,7 @@ numpy
 transformers
 torch
 llama-cpp-python
-openvino-tokenizers
+openvino-tokenizers[transformers]
 huggingface-hub
 psutil
 pynvml
