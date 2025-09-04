@@ -335,7 +335,14 @@ class OpenVINOModel(ModelInterface):
                 # Try Python API first, if available
                 if hf_hub_download is not None:
                     try:
-                        local_file = hf_hub_download(repo_id=repo_id, filename=filename)
+                        out_dir = Path(os.environ.get("HF_LOCAL_DIR", "models"))
+                        out_dir.mkdir(parents=True, exist_ok=True)
+                        local_file = hf_hub_download(
+                            repo_id=repo_id,
+                            filename=filename,
+                            local_dir=str(out_dir),
+                            local_dir_use_symlinks=False,
+                        )
                         gguf_path = Path(local_file)
                         break
                     except Exception as e:
