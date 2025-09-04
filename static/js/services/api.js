@@ -68,32 +68,24 @@ export async function sendMessage(message) {
 }
 
 export async function sendMessageStream(message, onChunk) {
-  const res = await fetch('/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'text/event-stream'
-    },
-    body: JSON.stringify({ message })
-  });
-
-  const reader = res.body && res.body.getReader ? res.body.getReader() : null;
-  if (!reader) return;
-  const decoder = new TextDecoder('utf-8');
-  let buffer = '';
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split('\n\n');
-    buffer = parts.pop() || '';
-    for (const part of parts) {
-      if (part.startsWith('data:')) {
-        const token = part.slice(5).trim();
-        if (token === '[DONE]') return;
+  return new Promise((resolve, reject) => {
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${protocol}://${location.host}/ws/messages`);
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ message }));
+    };
+    ws.onmessage = (event) => {
+      const token = event.data;
+      if (token === '[DONE]') {
+        ws.close();
+        resolve();
+      } else {
         onChunk(token);
       }
-    }
-  }
+    };
+    ws.onerror = (err) => {
+      reject(err);
+    };
+  });
 }
 

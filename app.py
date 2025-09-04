@@ -4,9 +4,10 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Request, UploadFile, File, Response
+from fastapi import FastAPI, Request, UploadFile, File, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, StreamingResponse
 import base64
+import json
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
@@ -244,6 +245,46 @@ async def message_handler(request: Request):
                         "content": "チャットボットは準備中です。まず動画を分析してください。",
                     }
                 ])
+
+
+@app.websocket("/ws/messages")
+async def websocket_message_handler(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        data = await websocket.receive_text()
+        try:
+            payload = json.loads(data)
+            user_msg = payload.get("message", "").strip()
+        except Exception:
+            user_msg = data.strip()
+        if not user_msg:
+            await websocket.close()
+            return
+        if not is_chatbot_enabled():
+            await websocket.send_text("チャットボットは無効化されています。")
+            await websocket.send_text("[DONE]")
+            return
+        if not chat.is_initialized():
+            success = _init_chatbot_sync()
+            if not success:
+                await websocket.send_text(
+                    "チャットボットは準備中です。まず動画を分析してください。"
+                )
+                await websocket.send_text("[DONE]")
+                return
+        for ch in chat.swing_ask_stream(user_msg, max_messages=MAX_MESSAGES):
+            await websocket.send_text(ch)
+        await websocket.send_text("[DONE]")
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        logger.exception("Error in websocket conversation: %s", exc)
+        await websocket.send_text(
+            "申し訳ございませんが、エラーが発生しました。もう一度お試しください。"
+        )
+        await websocket.send_text("[DONE]")
+    finally:
+        await websocket.close()
 
 
 @app.get("/videos/{filename:path}")
