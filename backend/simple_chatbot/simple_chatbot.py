@@ -341,7 +341,6 @@ class OpenVINOModel(ModelInterface):
                             repo_id=repo_id,
                             filename=filename,
                             local_dir=str(out_dir),
-                            local_dir_use_symlinks=False,
                         )
                         gguf_path = Path(local_file)
                         break
