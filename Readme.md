@@ -9,10 +9,10 @@ This project compares two golf swing videos with OpenVINO and includes a web int
 - Dependencies in `requirements.txt` (install via pip, see below)
 - OpenPose model in OpenVINO IR format (e.g. `human-pose-estimation-0001` from Open Model Zoo)
 
-Notes on models and backends:
-- Pose model default path is `intel/human-pose-estimation-0001/FP16/human-pose-estimation-0001.xml` (see `backend/config.py:Settings.MODEL_XML`). Adjust if your IR is elsewhere or a different precision.
-- General chatbot backends supported: `transformers` (HF), `llama.cpp` (GGUF), and `OpenVINO GenAI`. Select via `LLM_BACKEND` env var: `auto | transformers | llama | openvino` (default: `openvino`).
- - When using OpenVINO with GGUF, the app can auto-download the model (via `huggingface_hub`) and auto-convert the tokenizer (via `openvino-tokenizers`) when you pass a repo id like `Qwen/Qwen2.5-3B-Instruct-GGUF`.
+ Notes on models and backends:
+ - Pose model default path is `intel/human-pose-estimation-0001/FP16/human-pose-estimation-0001.xml` (see `backend/config.py:Settings.MODEL_XML`). Adjust if your IR is elsewhere or a different precision.
+ - General chatbot backends supported: `transformers` (HF), `llama.cpp` (GGUF), and `OpenVINO GenAI`. Select via `LLM_BACKEND` env var: `auto | transformers | llama | openvino` (default: `openvino`).
+  - When using OpenVINO with GGUF, the app can auto-download the model (via `huggingface_hub`) and auto-convert the tokenizer (via `openvino-tokenizers`) when you pass a repo id like `Qwen/Qwen2.5-1.5B-Instruct-GGUF`.
 
 ## Installation
 
@@ -43,12 +43,12 @@ A minimal FastAPI application displays reference and test videos next to a chat 
 
 ## Simple Web Chatbot
 
-A lightweight general-purpose chatbot is available at `http://localhost:8000/chat`. It uses a small DialoGPT model and stores the conversation only for the current session.
+A lightweight general-purpose chatbot is available at `http://localhost:8000/chat`. It uses the modular `simple_chatbot.py` LLM wrapper (default: Qwen2.5 1.5B Instruct via OpenVINO) and stores the conversation only for the current session.
 
 Backend selection and env vars:
 - `LLM_BACKEND`: `auto | transformers | llama | openvino` (default: `openvino`)
-- `CHAT_MODEL`: HF repo/model id (e.g., `Qwen/Qwen2.5-3B-Instruct` or `Qwen/Qwen2.5-3B-Instruct-GGUF`)
-- `CHAT_GGUF_FILENAME`: when using GGUF backends (e.g., `qwen2.5-3b-instruct-q4_k_m.gguf`)
+- `CHAT_MODEL`: HF repo/model id (e.g., `Qwen/Qwen2.5-1.5B-Instruct` or `Qwen/Qwen2.5-1.5B-Instruct-GGUF`)
+- `CHAT_GGUF_FILENAME`: when using GGUF backends (e.g., `qwen2.5-1.5b-instruct-q4_k_m.gguf`)
 - `TOKENIZER_ID`: optional override for tokenizer source when auto-converting (default: drop `-GGUF` from `CHAT_MODEL`).
 - `DEVICE`: OpenVINO device for pose model (`CPU`, `GPU`, etc.; default `CPU`)
 
