@@ -1,4 +1,4 @@
-import { chatbotStatus, getMessages, sendMessage, initChatbot } from '../services/api.js';
+import { chatbotStatus, getMessages, sendMessageStream, initChatbot } from '../services/api.js';
 import { setStatusPreparing, setStatusGenerating, setStatusReady, setStatusError } from './statusView.js';
 
 export class ChatController {
@@ -90,23 +90,18 @@ export class ChatController {
       this.box.appendChild(userP);
       this.input.value = '';
 
-      const loadingP = document.createElement('p');
-      loadingP.textContent = 'コーチ: 返信中...';
-      loadingP.style.opacity = '0.6';
-      this.box.appendChild(loadingP);
+      const coachP = document.createElement('p');
+      coachP.textContent = 'コーチ: ';
+      this.box.appendChild(coachP);
 
       try {
-        const data = await sendMessage(text);
-        this.box.removeChild(loadingP);
-        const coachP = document.createElement('p');
-        coachP.textContent = 'コーチ: ' + (data.reply || '');
-        this.box.appendChild(coachP);
+        await sendMessageStream(text, (chunk) => {
+          coachP.textContent += chunk;
+          this.box.scrollTop = this.box.scrollHeight;
+        });
       } catch (e) {
-        this.box.removeChild(loadingP);
-        const errP = document.createElement('p');
-        errP.textContent = 'コーチ: 返答の取得に失敗しました';
-        errP.style.color = 'red';
-        this.box.appendChild(errP);
+        coachP.textContent += '返答の取得に失敗しました';
+        coachP.style.color = 'red';
       }
       this.box.scrollTop = this.box.scrollHeight;
     };

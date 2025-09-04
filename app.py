@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Request, UploadFile, File, Response
-from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, StreamingResponse
 import base64
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -176,6 +176,11 @@ async def chat_messages_handler(request: Request):
         msgs = chat.general_messages()
         if len(msgs) > MAX_MESSAGES:
             msgs[:] = msgs[-MAX_MESSAGES:]
+        if "text/event-stream" in request.headers.get("accept", ""):
+            async def event_stream():
+                for ch in reply:
+                    yield f"data: {ch}\n\n"
+            return StreamingResponse(event_stream(), media_type="text/event-stream")
         return JSONResponse({"reply": reply})
     else:
         return JSONResponse(chat.general_messages())
@@ -202,6 +207,11 @@ async def message_handler(request: Request):
 
         try:
             reply = chat.swing_ask(user_msg, max_messages=MAX_MESSAGES)
+            if "text/event-stream" in request.headers.get("accept", ""):
+                async def event_stream():
+                    for ch in reply:
+                        yield f"data: {ch}\n\n"
+                return StreamingResponse(event_stream(), media_type="text/event-stream")
             return JSONResponse({"reply": reply})
             
         except Exception as exc:
