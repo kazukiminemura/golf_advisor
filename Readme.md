@@ -89,3 +89,33 @@ Notes:
 - Ensure `models` directory exists (created already in this repo).
 - `huggingface-cli` comes from `huggingface_hub` (install via `pip install huggingface_hub`). You may need `huggingface-cli login` for gated files.
 - `convert_tokenizer` is provided by the `openvino-tokenizers` project. If the Python package is installed, you can also use the built-in helper in `simple_chatbot.py` as shown above.
+
+### Download via Scripts (bartowski/Qwen2.5-1.5B-Instruct-GGUF)
+
+Use the provided scripts to download the community GGUF build from `bartowski/Qwen2.5-1.5B-Instruct-GGUF` into `models/`.
+
+- PowerShell (Windows) with `huggingface-cli`:
+
+```
+./scripts/download_model.ps1 -RepoId "bartowski/Qwen2.5-1.5B-Instruct-GGUF" -Filename "qwen2.5-1.5b-instruct-q4_k_m.gguf" -LocalDir "models"
+```
+
+- Python (cross‑platform) with `huggingface_hub`:
+
+```
+python scripts/download_model.py --repo bartowski/Qwen2.5-1.5B-Instruct-GGUF --file Qwen2.5-1.5B-Instruct-Q4_K_M.gguf --out models
+```
+
+Or simply use defaults (no arguments):
+
+```
+python scripts/download_model.py
+```
+
+Prerequisites:
+- PowerShell script: `huggingface-cli` available in `PATH` (`pip install -U huggingface-hub`).
+- Python script: `huggingface_hub` Python package (`pip install -U huggingface-hub`).
+
+Tips:
+- You can swap `qwen2.5-1.5b-instruct-q4_k_m.gguf` for another quant (e.g., `q4_k_s`, `q5_k_m`, `q8_0`).
+- The default app config expects `models/qwen2.5-1.5b-instruct-q4_k_m.gguf`. Update `CHAT_GGUF_FILENAME` if you choose a different file.

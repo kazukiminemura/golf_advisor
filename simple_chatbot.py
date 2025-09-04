@@ -1,9 +1,9 @@
-"""Lightweight modular chatbot with unified prompt handling.
+"""Lightweight modular chatbot focused on OpenVINO GGUF.
 
 This refactor simplifies the original implementation by:
-- Unifying chat prompt construction across backends
-- Avoiding tensor-based history for transformers (reduces memory/device issues)
-- Streamlining backend selection in a small factory
+- Defaulting to the OpenVINO backend (alias: "openvion")
+- Auto-downloading Qwen2.5 3B Instruct GGUF and converting tokenizer
+- Removing unused backends (Transformers, Llama.cpp) to reduce complexity
 - Keeping backward compatibility via SimpleChatBot.ask
 """
 
@@ -13,10 +13,9 @@ import os
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Tuple
 from pathlib import Path
-import time
-import torch
 import sys
 import subprocess
+import shutil
 
 
 class ModelInterface(ABC):
@@ -175,77 +174,34 @@ def ensure_tokenizer_converted(tokenizer_id: str, out_dir: Path, with_detokenize
     return False
 
 
+def _download_gguf_via_cli(repo_id: str, filename: str, out_dir: Path) -> Optional[Path]:
+    """Attempt GGUF download using `huggingface-cli` and return local path.
+
+    Searches `out_dir` recursively for `filename` after download.
+    """
+    cmd = ["huggingface-cli", "download", repo_id, filename, "--local-dir", str(out_dir)]
+    if shutil.which(cmd[0]) is None:
+        print("[hf-cli] 'huggingface-cli' not found in PATH")
+        return None
+    try:
+        print(f"[hf-cli] Running: {' '.join(cmd)}")
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        print(res.stdout)
+        if res.returncode != 0:
+            return None
+        # Try to locate the file under out_dir
+        for p in out_dir.rglob(filename):
+            return p
+        return None
+    except Exception as e:
+        print(f"[hf-cli] Download failed: {e}")
+        return None
+
+
 class TransformersModel(ModelInterface):
-    """Hugging Face transformers model implementation."""
-    
-    def __init__(self, model_name: str):
-        self.model_name = model_name
-        self.model = None
-        self.tokenizer = None
-        self.history = ChatHistory()
-        self._load_model()
-        # Shared generation limit across implementations
-        self.max_new_tokens = _env_int("LLM_MAX_TOKENS", 256)
-    
-    def _load_model(self):
-        """Load the transformer model and tokenizer."""
-        try:
-            from transformers import AutoTokenizer, AutoModelForCausalLM
-
-            print(f"Loading {self.model_name}...")
-            # Many modern chat models (e.g. Qwen) require trust_remote_code
-            # to load custom architectures/tokenizers.
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self.model_name,
-                trust_remote_code=True,
-            )
-            # Try to place the model appropriately if CUDA is available.
-            kwargs = {"trust_remote_code": True}
-            if torch.cuda.is_available():
-                kwargs.update({"device_map": "auto"})
-            self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_name,
-                **kwargs,
-            )
-            print("Model loaded!")
-
-        except Exception as e:
-            print(f"Failed to load model: {e}")
-            self.model = None
-            self.tokenizer = None
-    
-    def generate_response(self, message: str) -> str:
-        """Generate a response using simple text prompting and decode delta."""
-        if not self.model or not self.tokenizer:
-            return f"Echo: {message}"
-
-        # Build prompt including prior turns; append new user turn placeholder
-        prompt = self.history.build_prompt(next_user=message)
-        input_ids = self.tokenizer.encode(prompt, return_tensors="pt")
-        with torch.no_grad():
-            output_ids = self.model.generate(
-                input_ids,
-                max_new_tokens=self.max_new_tokens,
-                temperature=0.7,
-                do_sample=True,
-                pad_token_id=self.tokenizer.eos_token_id,
-            )
-        # Decode only the newly generated tokens (answer portion)
-        gen_ids = output_ids[0, input_ids.shape[-1]:]
-        reply = self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
-        # Update history
-        self.history.add_user(message)
-        self.history.add_assistant(reply)
-        return reply
-    
-    # --- chat-style conditioning ---
-    def set_system_prompt(self, prompt: str) -> None:
-        self.history.set_system_prompt(prompt)
-
-    def reset_history(self) -> None:
-        self.history.reset()
-    
-    # Remove tensor-history specific helpers in favor of ChatHistory
+    """Deprecated placeholder (removed)."""
+    def __init__(self, *_, **__):
+        raise RuntimeError("Transformers backend has been removed in this refactor.")
 
 
 class EchoModel(ModelInterface):
@@ -259,75 +215,9 @@ class EchoModel(ModelInterface):
 
 
 class LlamaCppModel(ModelInterface):
-    """llama.cpp backend for GGUF models (e.g., Qwen GGUF).
-
-    This uses llama-cpp-python to load a model from Hugging Face Hub via
-    `from_pretrained`, enabling the `chat_completion` interface.
-    """
-
-    def __init__(self, repo_id: str, filename: Optional[str] = None, n_ctx: int = 4096):
-        self.repo_id = repo_id
-        self.filename = filename or "qwen2.5-3b-instruct-q4_k_m.gguf"
-        self.n_ctx = n_ctx
-        self.llm = None
-        self.history: List[Dict[str, str]] = []
-        # Generation/token limits
-        self.max_new_tokens = _env_int("LLM_MAX_TOKENS", 256)
-        self._load_model()
-
-    def _load_model(self):
-        try:
-            from llama_cpp import Llama
-            threads = max(1, os.cpu_count() or 1)
-            n_batch = _env_int("LLAMA_N_BATCH", 1024)
-            n_gpu_layers = _env_int("LLAMA_N_GPU_LAYERS", 0)
-            print(f"Loading GGUF from {self.repo_id}/{self.filename} ...")
-            # Build args; include n_gpu_layers only when > 0 to avoid None issues
-            kwargs = dict(
-                repo_id=self.repo_id,
-                filename=self.filename,
-                n_ctx=self.n_ctx,
-                n_threads=threads,
-                n_batch=n_batch,
-                use_mmap=True,
-                chat_format="qwen",
-            )
-            if n_gpu_layers > 0:
-                kwargs["n_gpu_layers"] = n_gpu_layers
-            # Use built-in HF downloader; chat_format 'qwen' per llama.cpp support
-            self.llm = Llama.from_pretrained(**kwargs)
-            print("GGUF model loaded!")
-        except Exception as e:
-            print(f"Failed to load GGUF model: {e}")
-            self.llm = None
-
-    def generate_response(self, message: str) -> str:
-        if not self.llm:
-            return f"Echo: {message}"
-        # Maintain a minimal chat history
-        self.history.append({"role": "user", "content": message})
-        try:
-            result = self.llm.create_chat_completion(
-                messages=self.history,
-                temperature=0.7,
-                max_tokens=self.max_new_tokens,
-            )
-            reply = result["choices"][0]["message"]["content"].strip()
-            self.history.append({"role": "assistant", "content": reply})
-            return reply
-        except Exception as e:
-            return f"[Error generating response: {e}]"
-
-    # --- chat-style conditioning ---
-    def set_system_prompt(self, prompt: str) -> None:
-        # Insert or replace a leading system message to steer behavior
-        if self.history and self.history[0].get("role") == "system":
-            self.history[0]["content"] = prompt
-        else:
-            self.history.insert(0, {"role": "system", "content": prompt})
-
-    def reset_history(self) -> None:
-        self.history = []
+    """Deprecated placeholder (removed)."""
+    def __init__(self, *_, **__):
+        raise RuntimeError("Llama.cpp backend has been removed in this refactor.")
 
 
 class OpenVINOModel(ModelInterface):
@@ -391,7 +281,7 @@ class OpenVINOModel(ModelInterface):
                 tok_id = (
                     self._tokenizer_id
                     or os.environ.get("TOKENIZER_ID")
-                    or "Qwen/Qwen2.5-3B-Instruct"
+                    or "Qwen/Qwen2.5-1.5B-Instruct"
                 )
                 print(f"[tokenizer] Converting '{tok_id}' into {out_dir} (local GGUF)...")
                 ensure_tokenizer_converted(tok_id, out_dir, with_detokenizer=True)
@@ -402,29 +292,82 @@ class OpenVINOModel(ModelInterface):
             try:
                 from huggingface_hub import hf_hub_download  # type: ignore
             except Exception as e:
-                print(f"[hint] Install huggingface-hub for auto-download: pip install huggingface-hub\nError: {e}")
+                print(f"[hint] huggingface-hub not available ({e}). Will try CLI if present.")
+                hf_hub_download = None  # type: ignore
+
+            # Normalize common typos like '-GGU' -> '-GGUF'
+            repo_id = raw
+            if repo_id.endswith("-GGU"):
+                repo_id += "F"
+
+            # Resolve GGUF filename: prefer explicit arg/env, else try common variants
+            env_gguf = os.environ.get("GGUF_FILENAME")
+            if self._gguf_filename or env_gguf:
+                candidates = [self._gguf_filename or env_gguf]  # type: ignore[list-item]
+            else:
+                # Try common names across repos (case sensitive on HF)
+                candidates = [
+                    # bartowski naming
+                    "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
+                    "Qwen2.5-1.5B-Instruct-Q5_K_M.gguf",
+                    "Qwen2.5-1.5B-Instruct-Q4_K_S.gguf",
+                    # lowercase variant used elsewhere
+                    "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+                ]
+            gguf_path = None
+            last_err = None
+            for filename in candidates:
+                # Try Python API first, if available
+                if hf_hub_download is not None:
+                    try:
+                        local_file = hf_hub_download(repo_id=repo_id, filename=filename)
+                        gguf_path = Path(local_file)
+                        break
+                    except Exception as e:
+                        last_err = e
+                # Fallback to CLI
+                if gguf_path is None:
+                    out_dir = Path(os.environ.get("HF_LOCAL_DIR", "models"))
+                    cli_path = _download_gguf_via_cli(repo_id, filename, out_dir)
+                    if cli_path is not None:
+                        gguf_path = cli_path
+                        break
+            if gguf_path is None:
+                print("[download] Failed to fetch any GGUF file. Tried:")
+                for fn in candidates:
+                    print(f" - {repo_id}/{fn}")
+                if last_err is not None:
+                    print(f"Last error: {last_err}")
+                print("Hint: pass --gguf-filename <file.gguf> or set GGUF_FILENAME if your repo uses a different name.")
+                # Try auto-install of huggingface-hub and retry once via API
                 if _maybe_auto_install("huggingface-hub", "download GGUF via HF Hub"):
                     try:
-                        from huggingface_hub import hf_hub_download  # type: ignore
+                        from huggingface_hub import hf_hub_download as _retry_hf_download  # type: ignore
+                        for filename in candidates:
+                            try:
+                                local_file = _retry_hf_download(repo_id=repo_id, filename=filename)
+                                gguf_path = Path(local_file)
+                                break
+                            except Exception:
+                                continue
                     except Exception:
-                        return (None, None)
-                else:
+                        pass
+                if gguf_path is None:
                     return (None, None)
-
-            filename = self._gguf_filename or os.environ.get("GGUF_FILENAME", "qwen2.5-3b-instruct-q4_k_m.gguf")
-            try:
-                local_file = hf_hub_download(repo_id=raw, filename=filename)
-                gguf_path = Path(local_file)
-            except Exception as e:
-                print(f"[download] Failed to fetch GGUF {raw}/{filename}: {e}")
                 return (None, None)
 
             # Tokenizer id: drop -GGUF suffix if present, or use provided env/arg
-            tok_id = (
-                self._tokenizer_id
-                or os.environ.get("TOKENIZER_ID")
-                or (raw[:-6] if raw.endswith("-GGUF") else raw)
-            )
+            default_tok_id = None
+            if repo_id.endswith("-GGUF"):
+                base_id = repo_id[:-6]
+                # Map common community repos back to original model org for tokenizer
+                if base_id.startswith("bartowski/"):
+                    default_tok_id = "Qwen/Qwen2.5-1.5B-Instruct"
+                else:
+                    default_tok_id = base_id
+            else:
+                default_tok_id = repo_id
+            tok_id = self._tokenizer_id or os.environ.get("TOKENIZER_ID") or default_tok_id
             # Choose output dir: env override, else project 'models' dir if present, else cache dir
             tok_dir = Path(os.environ.get("TOKENIZER_OUT_DIR") or (Path("models") if Path("models").exists() else gguf_path.parent))
             tok_xml = tok_dir / "openvino_tokenizer.xml"
@@ -570,59 +513,35 @@ class ChatBotFactory:
 
     @classmethod
     def create_model(cls, model_name: str, gguf_filename: Optional[str] = None, backend: Optional[str] = None) -> ModelInterface:
-        """Select and build a model with straightforward rules.
+        """Select and build a model (OpenVINO-focused).
 
-        Priority:
-        1) CHATBOT_DEBUG -> Echo
-        2) Explicit backend arg/env overrides detection
-        3) URL-scheme-style or filename-based hints
-        4) Default to transformers
+        Rules:
+        - If CHATBOT_DEBUG or model == 'echo' -> Echo
+        - Backend 'openvion' or 'openvino' (or auto): use OpenVINOModel
+        - Sentinel model 'openvion' maps to default Qwen GGUF repo
         """
         name = (model_name or "").strip()
+
         if cls._env_flag("CHATBOT_DEBUG") or name.lower() == "echo":
             return EchoModel(prefix="(debug) " if name.lower() != "echo" else "Echo: ")
 
-        # Default backend changed to OpenVINO unless explicitly overridden
-        choice = (backend or os.environ.get("LLM_BACKEND", "openvino")).strip().lower()
-        if choice == "openvino":
+        choice = (backend or os.environ.get("LLM_BACKEND", "openvion")).strip().lower()
+        if choice in {"openvion", "openvino", "auto", ""}:
+            # Map sentinel 'openvion' model name to default Qwen GGUF repo
+            if name.lower() in {"openvion", "openvino", "", "default"}:
+                name = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"
             ov_path = name.split(":", 1)[1].strip() if name.lower().startswith("openvino:") else name
-            ov_model = OpenVINOModel(model_path=ov_path, gguf_filename=gguf_filename)
-            # Graceful fallback if OpenVINO failed to initialize
-            if hasattr(ov_model, "is_ready") and not ov_model.is_ready():
-                lname = ov_path.lower()
-                print("[fallback] OpenVINO not ready; attempting alternative backend...")
-                if lname.endswith(".gguf") or "gguf" in lname:
-                    try:
-                        return LlamaCppModel(repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF", filename=gguf_filename or ov_path)
-                    except Exception:
-                        pass
-                # Default fallback to transformers
-                return TransformersModel(name)
-            return ov_model
-        if choice == "llama":
-            if "/" in name and not name.lower().endswith(".gguf"):
-                return LlamaCppModel(repo_id=name, filename=gguf_filename)
-            return LlamaCppModel(repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF", filename=gguf_filename or name)
-        if choice == "transformers":
-            return TransformersModel(name)
+            return OpenVINOModel(model_path=ov_path, gguf_filename=gguf_filename)
 
-        # Auto-detect
-        lname = name.lower()
-        if lname.startswith("openvino:"):
-            ov_model = OpenVINOModel(model_path=name.split(":", 1)[1].strip())
-            return ov_model if ov_model.is_ready() else TransformersModel(name)
-        if lname.endswith(".gguf") or "gguf" in lname:
-            if "/" in name and not lname.endswith(".gguf"):
-                return LlamaCppModel(repo_id=name, filename=gguf_filename)
-            return LlamaCppModel(repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF", filename=gguf_filename or name)
-        return TransformersModel(name)
+        # Any other backend choices have been removed in this refactor
+        raise ValueError(f"Unsupported backend '{choice}'. Use 'openvion' (OpenVINO).")
 
 
 # Shared model cache for quick reuse across instances
 _SHARED_MODEL: Optional[ModelInterface] = None
 
 
-def preload_model(model_name: str = "Qwen/Qwen2.5-3B-Instruct-GGUF", gguf_filename: Optional[str] = None, backend: Optional[str] = None) -> None:
+def preload_model(model_name: str = "openvion", gguf_filename: Optional[str] = None, backend: Optional[str] = None) -> None:
     """Load the LLM backend asynchronously-safe for reuse.
 
     Subsequent ``SimpleChatBot`` instances reuse this shared model to avoid
@@ -646,10 +565,10 @@ class SimpleChatBot:
     ----------
     model_name:
         Name of the model backend to use. Defaults to
-        ``"Qwen/Qwen2.5-3B-Instruct-GGUF"``.
+        ``"Qwen/Qwen2.5-1.5B-Instruct-GGUF"``.
     """
 
-    def __init__(self, model_name: str = "Qwen/Qwen2.5-3B-Instruct-GGUF", gguf_filename: Optional[str] = None, backend: Optional[str] = None):
+    def __init__(self, model_name: str = "Qwen/Qwen2.5-1.5B-Instruct-GGUF", gguf_filename: Optional[str] = None, backend: Optional[str] = None):
         global _SHARED_MODEL
         # Reuse a preloaded model if present; otherwise build a fresh one.
         if _SHARED_MODEL is None:
@@ -676,22 +595,24 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Simple modular chatbot")
     parser.add_argument(
         "--model",
-        default="Qwen/Qwen2.5-3B-Instruct-GGUF",
+        default="openvion",
         help=(
-            "Model to use: repo 'Qwen/Qwen2.5-3B-Instruct-GGUF', 'echo', or "
-            "'openvino:<path_to_ov_or_gguf>'"
+            "Model to use. Default: 'openvion' sentinel which maps to "
+            "Qwen/Qwen2.5-1.5B-Instruct-GGUF with GGUF 'qwen2.5-1.5b-instruct-q4_k_m.gguf'. "
+            "Also accepts repo id (e.g. 'Qwen/Qwen2.5-1.5B-Instruct-GGUF'), 'echo', or "
+            "'openvino:<path_to_ov_or_gguf>'."
         )
     )
     parser.add_argument(
         "--gguf-filename",
-        default="qwen2.5-3b-instruct-q4_k_m.gguf",
-        help="GGUF filename within the repo (for llama.cpp backend)"
+        default="qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        help="GGUF filename within the repo (used for OpenVINO GGUF downloads)"
     )
     parser.add_argument(
         "--backend",
-        choices=["auto", "openvino", "llama", "transformers"],
-        default=os.environ.get("LLM_BACKEND", "openvino"),
-        help="Backend: auto, openvino, llama, transformers (default: openvino)."
+        choices=["auto", "openvion", "openvino"],
+        default=os.environ.get("LLM_BACKEND", "openvion"),
+        help="Backend: auto or openvion/openvino (default: openvion)."
     )
     parser.add_argument(
         "--auto-install-tokenizers",

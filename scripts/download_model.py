@@ -2,10 +2,13 @@
 """
 Download a model file from Hugging Face Hub into a local directory.
 
-Usage:
+Usage (defaults to bartowski/Qwen2.5-1.5B-Instruct-GGUF Q4_K_M into models/):
+  python scripts/download_model.py
+
+Override examples:
   python scripts/download_model.py \
-    --repo Qwen/Qwen2.5-1.5B-Instruct-GGUF \
-    --file qwen2.5-1.5b-instruct-q4_k_m.gguf \
+    --repo bartowski/Qwen2.5-1.5B-Instruct-GGUF \
+    --file Qwen2.5-1.5B-Instruct-Q4_K_M.gguf \
     --out models
 """
 import argparse
@@ -21,8 +24,8 @@ except Exception as e:
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--repo", required=True)
-    p.add_argument("--file", required=True)
+    p.add_argument("--repo", default="bartowski/Qwen2.5-1.5B-Instruct-GGUF")
+    p.add_argument("--file", default="Qwen2.5-1.5B-Instruct-Q4_K_M.gguf")
     p.add_argument("--out", default="models")
     args = p.parse_args()
 
