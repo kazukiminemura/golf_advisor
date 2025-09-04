@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Download a model file from Hugging Face Hub into a local directory.
+Download a model file from Hugging Face Hub using ``huggingface-cli``.
 
-Usage (defaults to bartowski/Qwen2.5-1.5B-Instruct-GGUF Q4_K_M into models/):
+Usage (defaults to bartowski/Qwen2.5-1.5B-Instruct-GGUF Q4_K_M into ``models/``):
   python scripts/download_model.py
 
 Override examples:
@@ -13,13 +13,7 @@ Override examples:
 """
 import argparse
 from pathlib import Path
-import shutil
-
-try:
-    from huggingface_hub import hf_hub_download
-except Exception as e:
-    print("huggingface_hub is required. Install with: pip install -U huggingface-hub")
-    raise
+import subprocess
 
 
 def main():
@@ -32,10 +26,26 @@ def main():
     dest_dir = Path(args.out)
     dest_dir.mkdir(parents=True, exist_ok=True)
     print(f"Downloading {args.repo}::{args.file} -> {dest_dir}")
-    local = hf_hub_download(repo_id=args.repo, filename=args.file)
-    target = dest_dir / args.file
-    shutil.copy2(local, target)
-    print(f"Saved to {target}")
+    cmd = [
+        "huggingface-cli",
+        "download",
+        args.repo,
+        args.file,
+        "--local-dir",
+        str(dest_dir),
+    ]
+    try:
+        res = subprocess.run(
+            cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
+        print(res.stdout)
+    except FileNotFoundError:
+        print("huggingface-cli not found. Install via: pip install -U huggingface-hub")
+        return
+    except subprocess.CalledProcessError as e:
+        print(e.stdout)
+        raise SystemExit(e.returncode)
+    print(f"Saved to {dest_dir / args.file}")
 
 
 if __name__ == "__main__":
