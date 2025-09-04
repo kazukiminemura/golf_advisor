@@ -53,7 +53,7 @@ class OpenVinoPoseExtractor(PoseExtractor):
         cached = _MODEL_CACHE.get(key)
         if cached is not None:
             return cached
-        from openvino.runtime import Core
+        from openvino import Core
 
         core = Core()
         model = core.read_model(model=model_xml)
