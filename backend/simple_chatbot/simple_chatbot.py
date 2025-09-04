@@ -649,7 +649,7 @@ def parse_args():
         help=(
             "Model to use. Default: 'openvion' sentinel which maps to "
             "bartowski/Qwen2.5-1.5B-Instruct-GGUF with GGUF 'Qwen2.5-1.5B-Instruct-Q4_K_M.gguf'. "
-            "Also accepts repo id (e.g. 'Qwen/Qwen2.5-1.5B-Instruct-GGUF'), 'echo', or "
+            "Also accepts repo id (e.g. 'bartowski/Qwen2.5-1.5B-Instruct-GGUF'), 'echo', or "
             "'openvino:<path_to_ov_or_gguf>'."
         )
     )
