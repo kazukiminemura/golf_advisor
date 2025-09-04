@@ -43,7 +43,7 @@ A minimal FastAPI application displays reference and test videos next to a chat 
 
 ## Simple Web Chatbot
 
-A lightweight general-purpose chatbot is available at `http://localhost:8000/chat`. It uses the modular `simple_chatbot.py` LLM wrapper (default: Qwen2.5 1.5B Instruct via OpenVINO) and stores the conversation only for the current session.
+A lightweight general-purpose chatbot is available at `http://localhost:8000/chat`. It uses the modular `backend.simple_chatbot` LLM wrapper (default: Qwen2.5 1.5B Instruct via OpenVINO) and stores the conversation only for the current session.
 
 Backend selection and env vars:
 - `LLM_BACKEND`: `auto | transformers | llama | openvino` (default: `openvino`)
@@ -73,10 +73,10 @@ Use these commands to prepare local model files in the `models` directory.
 convert_tokenizer Qwen/Qwen2.5-1.5B-Instruct --with-detokenizer -o models
 ```
 
-Or using the integrated helper in `simple_chatbot.py` (no separate CLI required):
+Or using the integrated helper in `backend.simple_chatbot` (no separate CLI required):
 
 ```
-python simple_chatbot.py --convert-tokenizer Qwen/Qwen2.5-1.5B-Instruct --with-detokenizer -o models
+python -m backend.simple_chatbot --convert-tokenizer Qwen/Qwen2.5-1.5B-Instruct --with-detokenizer -o models
 ```
 
 - Download a quantized GGUF model:
@@ -88,7 +88,7 @@ huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct-GGUF qwen2.5-1.5b-instruct-q
 Notes:
 - Ensure `models` directory exists (created already in this repo).
 - `huggingface-cli` comes from `huggingface_hub` (install via `pip install huggingface_hub`). You may need `huggingface-cli login` for gated files.
-- `convert_tokenizer` is provided by the `openvino-tokenizers` project. If the Python package is installed, you can also use the built-in helper in `simple_chatbot.py` as shown above.
+- `convert_tokenizer` is provided by the `openvino-tokenizers` project. If the Python package is installed, you can also use the built-in helper in `backend.simple_chatbot` as shown above.
 
 ### Download via Scripts (bartowski/Qwen2.5-1.5B-Instruct-GGUF)
 

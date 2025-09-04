@@ -15,7 +15,8 @@ from backend.services.analysis_service import AnalysisService
 from backend.services.chatbot_service import ChatbotService
 from backend.services.system_service import SystemService
 from backend.utils.files import safe_filename
-from simple_chatbot import preload_model
+from backend.simple_chatbot import preload_model
+from backend.simple_chatbot.config import ChatbotConfig
 
 app = FastAPI()
 
@@ -84,11 +85,12 @@ async def warm_models_background():
     # Warm LLM backend used by SimpleChatBot/EnhancedSwingChatBot
     async def _warm_llm():
         try:
+            cfg = ChatbotConfig()
             await asyncio.to_thread(
                 preload_model,
-                settings.CHAT_MODEL,
-                gguf_filename=settings.CHAT_GGUF_FILENAME,
-                backend=settings.LLM_BACKEND,
+                cfg.model_name,
+                gguf_filename=cfg.gguf_filename,
+                backend=cfg.backend,
             )
             logger.info("LLM model preloaded in background")
         except Exception as exc:

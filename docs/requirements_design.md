@@ -48,7 +48,7 @@
 
 
 7. **一般向けチャット**
-    - `simple_chatbot.py` に基づく軽量LLMチャットボットを `/chat` ページで提供する（デフォルトは OpenVINO で動作する Qwen2.5 1.5B モデル）
+    - `backend.simple_chatbot` モジュールに基づく軽量LLMチャットボットを `/chat` ページで提供する（デフォルトは OpenVINO で動作する Qwen2.5 1.5B モデル）
 
 
 
@@ -107,7 +107,7 @@
 
 
 
-3. **simple_chatbot.py**
+3. **backend/simple_chatbot/**
     - `SimpleChatBot` が Qwen2.5 1.5B などのLLMをバックエンド経由でロードし、会話履歴を維持しながら応答を生成する
 
 
