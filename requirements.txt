@@ -14,3 +14,4 @@ pynvml
 jinja2
 aiofiles
 python-multipart
+websockets
