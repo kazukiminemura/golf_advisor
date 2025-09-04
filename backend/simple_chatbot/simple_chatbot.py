@@ -592,6 +592,23 @@ class SimpleChatBot:
         """Generate a reply for ``message`` using the underlying model."""
         return self._model.generate_response(message)
 
+    def ask_stream(self, message: str):
+        """Yield a reply incrementally.
+
+        This is a simple wrapper around :meth:`ask` that yields the final
+        response one character at a time.  If the underlying model provides a
+        ``generate_response_stream`` method, it will be used instead to allow
+        token-level streaming.
+        """
+        gen = getattr(self._model, "generate_response_stream", None)
+        if callable(gen):
+            for chunk in gen(message):
+                yield chunk
+        else:
+            reply = self.ask(message)
+            for ch in reply:
+                yield ch
+
     # Expose optional hooks when available
     def set_system_prompt(self, prompt: str) -> None:
         model = self._model
