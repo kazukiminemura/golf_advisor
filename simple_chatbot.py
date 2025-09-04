@@ -246,8 +246,7 @@ class OpenVINOModel(ModelInterface):
           - an OpenVINO-optimized model directory, loaded via TextGeneration.
 
         Examples:
-            --model openvino:C:\\models\\Qwen2.5-Instruct-3B.Q4_K_M.gguf
-            --model openvino:C:\\models\\qwen2.5-3b-instruct-int4-ov
+            --model bartowski/Qwen2.5-1.5B-Instruct-GGUF
 
     Notes:
         - Requires the Python package "openvino-genai". If it is not installed,
@@ -572,7 +571,6 @@ def _openvino_backend_factory(model_name: str, gguf_filename: Optional[str]) -> 
 
 
 ChatBotFactory.register_backend("openvion", _openvino_backend_factory)
-ChatBotFactory.register_backend("openvino", _openvino_backend_factory)
 
 
 # Shared model cache for quick reuse across instances
