@@ -11,8 +11,8 @@ This project compares two golf swing videos with OpenVINO and includes a web int
 
 Notes on models and backends:
 - Pose model default path is `intel/human-pose-estimation-0001/FP16/human-pose-estimation-0001.xml` (see `backend/config.py:Settings.MODEL_XML`). Adjust if your IR is elsewhere or a different precision.
-- General chatbot backends supported: `transformers` (HF), `llama.cpp` (GGUF), and `OpenVINO GenAI`. Select via `LLM_BACKEND` env var: `auto | transformers | llama | openvino`.
-- For GGUF with OpenVINO GenAI, convert and place tokenizer IRs alongside your model using `convert_tokenizer` (see Model Assets below). You may also need `openvino-tokenizers` installed.
+- General chatbot backends supported: `transformers` (HF), `llama.cpp` (GGUF), and `OpenVINO GenAI`. Select via `LLM_BACKEND` env var: `auto | transformers | llama | openvino` (default: `openvino`).
+ - When using OpenVINO with GGUF, the app can auto-download the model (via `huggingface_hub`) and auto-convert the tokenizer (via `openvino-tokenizers`) when you pass a repo id like `Qwen/Qwen2.5-3B-Instruct-GGUF`.
 
 ## Installation
 
@@ -46,9 +46,10 @@ A minimal FastAPI application displays reference and test videos next to a chat 
 A lightweight general-purpose chatbot is available at `http://localhost:8000/chat`. It uses a small DialoGPT model and stores the conversation only for the current session.
 
 Backend selection and env vars:
-- `LLM_BACKEND`: `auto | transformers | llama | openvino` (default: `auto`)
+- `LLM_BACKEND`: `auto | transformers | llama | openvino` (default: `openvino`)
 - `CHAT_MODEL`: HF repo/model id (e.g., `Qwen/Qwen2.5-3B-Instruct` or `Qwen/Qwen2.5-3B-Instruct-GGUF`)
 - `CHAT_GGUF_FILENAME`: when using GGUF backends (e.g., `qwen2.5-3b-instruct-q4_k_m.gguf`)
+- `TOKENIZER_ID`: optional override for tokenizer source when auto-converting (default: drop `-GGUF` from `CHAT_MODEL`).
 - `DEVICE`: OpenVINO device for pose model (`CPU`, `GPU`, etc.; default `CPU`)
 
 ## Backend Architecture (SOLID Refactor)

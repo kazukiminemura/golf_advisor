@@ -249,10 +249,12 @@ class OpenVINOModel(ModelInterface):
         - Device can be selected via env var OPENVINO_DEVICE (CPU, GPU.0, etc.).
     """
 
-    def __init__(self, model_path: str, device: Optional[str] = None):
+    def __init__(self, model_path: str, device: Optional[str] = None, gguf_filename: Optional[str] = None, tokenizer_id: Optional[str] = None):
         self.model_path = model_path
         self.device = device or os.environ.get("OPENVINO_DEVICE", "CPU")
         self.max_new_tokens = _env_int("LLM_MAX_TOKENS", 256)
+        self._gguf_filename = gguf_filename
+        self._tokenizer_id = tokenizer_id
 
         self._pipe = None           # TextGeneration or LLM fallback
         self._cfg = None            # GenerationConfig for TextGeneration
@@ -263,27 +265,87 @@ class OpenVINOModel(ModelInterface):
         self._history = ChatHistory()
         self._load_model()
 
+    def _is_repo_id(self, path_or_id: str) -> bool:
+        # Heuristic: repo ids look like "org/name" without drive letters
+        return "/" in path_or_id and not Path(path_or_id).drive
+
+    def _ensure_resources(self) -> Tuple[Optional[Path], Optional[Path]]:
+        """Ensure local model resources for OpenVINO GGUF path and tokenizer.
+
+        Returns (gguf_path, tokenizer_dir) if GGUF pipeline should be used.
+        Returns (None, model_dir) if TextGeneration should be used for OV IR.
+        """
+        raw = self.model_path
+        p = Path(raw)
+        # Case 1: direct OV IR directory (contains openvino_model.xml or similar)
+        if p.exists() and p.is_dir():
+            # Let TextGeneration load this directory
+            return (None, p)
+
+        # Case 2: local GGUF path
+        if p.exists() and p.is_file() and p.suffix.lower() == ".gguf":
+            tok_dir = p.parent
+            return (p, tok_dir)
+
+        # Case 3: treat as Hugging Face repo id and download GGUF
+        if self._is_repo_id(raw):
+            try:
+                from huggingface_hub import hf_hub_download  # type: ignore
+            except Exception as e:
+                print(f"[hint] Install huggingface-hub for auto-download: pip install huggingface-hub\nError: {e}")
+                return (None, None)
+
+            filename = self._gguf_filename or os.environ.get("GGUF_FILENAME", "qwen2.5-3b-instruct-q4_k_m.gguf")
+            try:
+                local_file = hf_hub_download(repo_id=raw, filename=filename)
+                gguf_path = Path(local_file)
+            except Exception as e:
+                print(f"[download] Failed to fetch GGUF {raw}/{filename}: {e}")
+                return (None, None)
+
+            # Tokenizer id: drop -GGUF suffix if present, or use provided env/arg
+            tok_id = (
+                self._tokenizer_id
+                or os.environ.get("TOKENIZER_ID")
+                or (raw[:-6] if raw.endswith("-GGUF") else raw)
+            )
+            tok_dir = gguf_path.parent
+            tok_xml = tok_dir / "openvino_tokenizer.xml"
+            if not tok_xml.exists():
+                try:
+                    from openvino_tokenizers import convert_tokenizer  # type: ignore
+                except Exception as e:
+                    print("[hint] Install openvino-tokenizers to auto-convert tokenizer: pip install openvino-tokenizers")
+                    print(f"[tokenizer] Missing tokenizer IR at {tok_dir}; unable to convert automatically. Error: {e}")
+                else:
+                    try:
+                        print(f"[tokenizer] Converting tokenizer from '{tok_id}' into {tok_dir} ...")
+                        convert_tokenizer(tok_id, tok_dir)
+                    except Exception as e:
+                        print(f"[tokenizer] Conversion failed: {e}")
+            return (gguf_path, tok_dir)
+
+        # Fallback: string path that doesn't exist; let TextGeneration try
+        return (None, p if p.exists() else None)
+
     def _load_model(self) -> None:
         try:
-            from pathlib import Path
-            if self.model_path.lower().endswith(".gguf"):
-                # --- GGUF 経路: Tokenizer + LLMPipeline ---
+            gguf_path, aux_path = self._ensure_resources()
+            if gguf_path is not None:
+                # --- GGUF path: Tokenizer + LLMPipeline ---
                 from openvino_genai import Tokenizer, LLMPipeline, GenerationConfig  # type: ignore
-                gguf_path = Path(self.model_path).resolve()
-                tok_dir = gguf_path.parent  # ここに openvino_tokenizer.xml がある想定
-                if not (tok_dir / "openvino_tokenizer.xml").exists():
-                    print(f"[hint] {tok_dir} に tokenizer IR がありません。先に `convert_tokenizer` を実行してください。")
                 print(f"[OV] LLMPipeline(GGUF) loading: {gguf_path} on {self.device}")
-                tokenizer = Tokenizer(str(tok_dir))
+                tokenizer = Tokenizer(str(aux_path))  # aux_path is tokenizer dir
                 pipe = LLMPipeline(str(gguf_path), tokenizer, self.device)
                 cfg = GenerationConfig()
                 cfg.max_new_tokens = self.max_new_tokens
                 self._ov_pipe, self._ov_cfg, self._mode = pipe, cfg, "llm"
             else:
-                # --- OV IR 経路: TextGeneration ---
+                # --- OV IR path or unresolved: try TextGeneration ---
                 from openvino_genai import TextGeneration, GenerationConfig  # type: ignore
-                print(f"[OV] TextGeneration(IR) loading: {self.model_path} on {self.device}")
-                self._pipe = TextGeneration(self.model_path, device=self.device)
+                model_dir = str(aux_path) if aux_path is not None else self.model_path
+                print(f"[OV] TextGeneration(IR) loading: {model_dir} on {self.device}")
+                self._pipe = TextGeneration(model_dir, device=self.device)
                 try:
                     self._cfg = GenerationConfig(max_new_tokens=self.max_new_tokens, temperature=0.7)
                 except Exception:
@@ -408,10 +470,11 @@ class ChatBotFactory:
         if cls._env_flag("CHATBOT_DEBUG") or name.lower() == "echo":
             return EchoModel(prefix="(debug) " if name.lower() != "echo" else "Echo: ")
 
-        choice = (backend or os.environ.get("LLM_BACKEND", "auto")).strip().lower()
+        # Default backend changed to OpenVINO unless explicitly overridden
+        choice = (backend or os.environ.get("LLM_BACKEND", "openvino")).strip().lower()
         if choice == "openvino":
             ov_path = name.split(":", 1)[1].strip() if name.lower().startswith("openvino:") else name
-            return OpenVINOModel(model_path=ov_path)
+            return OpenVINOModel(model_path=ov_path, gguf_filename=gguf_filename)
         if choice == "llama":
             if "/" in name and not name.lower().endswith(".gguf"):
                 return LlamaCppModel(repo_id=name, filename=gguf_filename)
@@ -502,8 +565,8 @@ def parse_args():
     parser.add_argument(
         "--backend",
         choices=["auto", "openvino", "llama", "transformers"],
-        default=os.environ.get("LLM_BACKEND", "auto"),
-        help="Backend: auto, openvino, llama, transformers (overrides auto-detect)."
+        default=os.environ.get("LLM_BACKEND", "openvino"),
+        help="Backend: auto, openvino, llama, transformers (default: openvino)."
     )
     return parser.parse_args()
 
