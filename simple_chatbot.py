@@ -86,6 +86,17 @@ def _maybe_auto_install(spec: str, reason: str, env_flag: str = "AUTO_INSTALL_TO
     """
     if os.environ.get(env_flag, "").strip().lower() not in {"1", "true", "yes"}:
         return False
+    try:
+        # Support multiple specs separated by spaces
+        specs = spec.split()
+        print(f"[auto-install] Installing {spec} to {sys.executable} ({reason}) ...")
+        result = subprocess.run([sys.executable, "-m", "pip", "install", *specs],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        print(result.stdout)
+        return result.returncode == 0
+    except Exception as e:
+        print(f"[auto-install] Failed to install {spec}: {e}")
+        return False
 
 
 def _convert_tokenizer_with_options(tokenizer_id: str, out_dir: Path) -> bool:
@@ -113,17 +124,55 @@ def _convert_tokenizer_with_options(tokenizer_id: str, out_dir: Path) -> bool:
     except Exception as e:
         print(f"[tokenizer] Conversion failed: {e}")
         return False
+
+def _convert_tokenizer_via_cli(tokenizer_id: str, out_dir: Path, with_detokenizer: bool = True) -> bool:
+    """Fallback to the `convert_tokenizer` CLI if Python API isn't available."""
+    cmd = ["convert_tokenizer", tokenizer_id, "-o", str(out_dir)]
+    if with_detokenizer:
+        cmd.insert(2, "--with-detokenizer")
     try:
-        # Support multiple specs separated by spaces
-        specs = spec.split()
-        print(f"[auto-install] Installing {spec} to {sys.executable} ({reason}) ...")
-        result = subprocess.run([sys.executable, "-m", "pip", "install", *specs],
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        print(result.stdout)
-        return result.returncode == 0
-    except Exception as e:
-        print(f"[auto-install] Failed to install {spec}: {e}")
+        print(f"[tokenizer] Running CLI: {' '.join(cmd)}")
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        print(res.stdout)
+        return res.returncode == 0
+    except FileNotFoundError:
+        print("[tokenizer] 'convert_tokenizer' CLI not found in PATH")
         return False
+    except Exception as e:
+        print(f"[tokenizer] CLI conversion failed: {e}")
+        return False
+
+def ensure_tokenizer_converted(tokenizer_id: str, out_dir: Path, with_detokenizer: bool = True) -> bool:
+    """Ensure tokenizer is converted to OpenVINO IR at `out_dir`.
+
+    Tries Python API; falls back to CLI; optionally installs dependencies
+    when `AUTO_INSTALL_TOKENIZERS=1`.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tok_xml = out_dir / "openvino_tokenizer.xml"
+    if tok_xml.exists():
+        print(f"[tokenizer] Already present: {tok_xml}")
+        return True
+
+    # Try Python API first
+    ok = _convert_tokenizer_with_options(tokenizer_id, out_dir)
+    if ok:
+        return True
+
+    # Try CLI fallback
+    if _convert_tokenizer_via_cli(tokenizer_id, out_dir, with_detokenizer=with_detokenizer):
+        return True
+
+    # Try installing and retry
+    if _maybe_auto_install("openvino-tokenizers[transformers]", "tokenizer conversion support"):
+        if _convert_tokenizer_with_options(tokenizer_id, out_dir):
+            return True
+    if _maybe_auto_install("transformers[sentencepiece] tiktoken", "HF tokenizer conversion dependencies"):
+        if _convert_tokenizer_with_options(tokenizer_id, out_dir):
+            return True
+        if _convert_tokenizer_via_cli(tokenizer_id, out_dir, with_detokenizer=with_detokenizer):
+            return True
+    return False
 
 
 class TransformersModel(ModelInterface):
@@ -345,14 +394,7 @@ class OpenVINOModel(ModelInterface):
                     or "Qwen/Qwen2.5-3B-Instruct"
                 )
                 print(f"[tokenizer] Converting '{tok_id}' into {out_dir} (local GGUF)...")
-                ok = _convert_tokenizer_with_options(tok_id, out_dir)
-                if not ok:
-                    # Try optional install and retry
-                    if _maybe_auto_install("openvino-tokenizers[transformers]", "tokenizer conversion support"):
-                        ok = _convert_tokenizer_with_options(tok_id, out_dir)
-                        if not ok:
-                            _maybe_auto_install("transformers[sentencepiece] tiktoken", "HF tokenizer conversion dependencies")
-                            _convert_tokenizer_with_options(tok_id, out_dir)
+                ensure_tokenizer_converted(tok_id, out_dir, with_detokenizer=True)
             return (p, out_dir)
 
         # Case 3: treat as Hugging Face repo id and download GGUF
@@ -388,11 +430,7 @@ class OpenVINOModel(ModelInterface):
             tok_xml = tok_dir / "openvino_tokenizer.xml"
             if not tok_xml.exists():
                 print(f"[tokenizer] Converting tokenizer from '{tok_id}' into {tok_dir} (repo GGUF) ...")
-                if not _convert_tokenizer_with_options(tok_id, tok_dir):
-                    if _maybe_auto_install("openvino-tokenizers[transformers]", "tokenizer conversion support"):
-                        if not _convert_tokenizer_with_options(tok_id, tok_dir):
-                            _maybe_auto_install("transformers[sentencepiece] tiktoken", "HF tokenizer conversion dependencies")
-                            _convert_tokenizer_with_options(tok_id, tok_dir)
+                ensure_tokenizer_converted(tok_id, tok_dir, with_detokenizer=True)
             return (gguf_path, tok_dir)
 
         # Fallback: string path that doesn't exist; let TextGeneration try
@@ -660,6 +698,22 @@ def parse_args():
         action="store_true",
         help="Allow runtime pip install for tokenizer conversion dependencies."
     )
+    # Tokenizer conversion utility
+    parser.add_argument(
+        "--convert-tokenizer",
+        metavar="TOKENIZER_ID",
+        help="Convert a HF tokenizer (e.g., 'Qwen/Qwen2.5-1.5B-Instruct') to OpenVINO IR and exit."
+    )
+    parser.add_argument(
+        "-o", "--tokenizer-out",
+        default="models",
+        help="Output directory for OpenVINO tokenizer files (default: models)."
+    )
+    parser.add_argument(
+        "--with-detokenizer",
+        action="store_true",
+        help="Also convert and save OpenVINO detokenizer when supported."
+    )
     return parser.parse_args()
 
 
@@ -669,6 +723,17 @@ def main():
     if args.auto_install_tokenizers:
         # Signal optional runtime install to the OpenVINO path
         os.environ["AUTO_INSTALL_TOKENIZERS"] = "1"
+
+    # Standalone tokenizer conversion mode
+    if args.convert_tokenizer:
+        out_dir = Path(args.tokenizer_out)
+        ok = ensure_tokenizer_converted(args.convert_tokenizer, out_dir, with_detokenizer=args.with_detokenizer)
+        if ok:
+            print(f"[tokenizer] Saved to: {out_dir}")
+            return
+        else:
+            print("[tokenizer] Conversion failed.")
+            sys.exit(1)
     
     model = ChatBotFactory.create_model(args.model, gguf_filename=args.gguf_filename, backend=args.backend)
     chat = ChatInterface(model)

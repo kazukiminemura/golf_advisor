@@ -73,6 +73,12 @@ Use these commands to prepare local model files in the `models` directory.
 convert_tokenizer Qwen/Qwen2.5-1.5B-Instruct --with-detokenizer -o models
 ```
 
+Or using the integrated helper in `simple_chatbot.py` (no separate CLI required):
+
+```
+python simple_chatbot.py --convert-tokenizer Qwen/Qwen2.5-1.5B-Instruct --with-detokenizer -o models
+```
+
 - Download a quantized GGUF model:
 
 ```
@@ -82,4 +88,4 @@ huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct-GGUF qwen2.5-1.5b-instruct-q
 Notes:
 - Ensure `models` directory exists (created already in this repo).
 - `huggingface-cli` comes from `huggingface_hub` (install via `pip install huggingface_hub`). You may need `huggingface-cli login` for gated files.
-- `convert_tokenizer` is provided by llama.cpp tooling; install per your environment if not present.
+- `convert_tokenizer` is provided by the `openvino-tokenizers` project. If the Python package is installed, you can also use the built-in helper in `simple_chatbot.py` as shown above.
