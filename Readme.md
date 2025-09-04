@@ -70,7 +70,7 @@ Use these commands to prepare local model files in the `models` directory.
 - Convert tokenizer with detokenizer:
 
 ```
-convert_tokenizer Qwen/Qwen2.5-3B-Instruct --with-detokenizer -o models
+convert_tokenizer Qwen/Qwen2.5-1.5B-Instruct --with-detokenizer -o models
 ```
 
 - Download a quantized GGUF model:

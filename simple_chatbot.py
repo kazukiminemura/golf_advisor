@@ -15,6 +15,8 @@ from typing import Optional, List, Dict, Tuple
 from pathlib import Path
 import time
 import torch
+import sys
+import subprocess
 
 
 class ModelInterface(ABC):
@@ -73,6 +75,55 @@ class ChatHistory:
         if next_user is not None:
             parts.append(f"[USER]\n{next_user}\n[ASSISTANT]\n")
         return "".join(parts)
+
+
+def _maybe_auto_install(spec: str, reason: str, env_flag: str = "AUTO_INSTALL_TOKENIZERS") -> bool:
+    """Optionally install a pip package at runtime when explicitly allowed.
+
+    Controlled by environment variable `AUTO_INSTALL_TOKENIZERS` or an
+    equivalent CLI flag that sets it to '1'. Returns True if installation
+    appears successful.
+    """
+    if os.environ.get(env_flag, "").strip().lower() not in {"1", "true", "yes"}:
+        return False
+
+
+def _convert_tokenizer_with_options(tokenizer_id: str, out_dir: Path) -> bool:
+    """Convert tokenizer to OpenVINO IR with detokenizer when possible.
+
+    Tries `with_detokenizer=True` first, then falls back if not supported.
+    Returns True on apparent success.
+    """
+    try:
+        from openvino_tokenizers import convert_tokenizer  # type: ignore
+    except Exception as e:
+        print("[tokenizer] openvino-tokenizers not available:", e)
+        return False
+    try:
+        convert_tokenizer(tokenizer_id, str(out_dir), with_detokenizer=True)  # type: ignore[arg-type]
+        return True
+    except TypeError:
+        # Older versions may not accept with_detokenizer
+        try:
+            convert_tokenizer(tokenizer_id, str(out_dir))
+            return True
+        except Exception as e2:
+            print(f"[tokenizer] Conversion failed without detokenizer: {e2}")
+            return False
+    except Exception as e:
+        print(f"[tokenizer] Conversion failed: {e}")
+        return False
+    try:
+        # Support multiple specs separated by spaces
+        specs = spec.split()
+        print(f"[auto-install] Installing {spec} to {sys.executable} ({reason}) ...")
+        result = subprocess.run([sys.executable, "-m", "pip", "install", *specs],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        print(result.stdout)
+        return result.returncode == 0
+    except Exception as e:
+        print(f"[auto-install] Failed to install {spec}: {e}")
+        return False
 
 
 class TransformersModel(ModelInterface):
@@ -284,8 +335,25 @@ class OpenVINOModel(ModelInterface):
 
         # Case 2: local GGUF path
         if p.exists() and p.is_file() and p.suffix.lower() == ".gguf":
-            tok_dir = p.parent
-            return (p, tok_dir)
+            # Prefer explicit out dir via env, else alongside the GGUF file
+            out_dir = Path(os.environ.get("TOKENIZER_OUT_DIR", p.parent))
+            tok_xml = out_dir / "openvino_tokenizer.xml"
+            if not tok_xml.exists():
+                tok_id = (
+                    self._tokenizer_id
+                    or os.environ.get("TOKENIZER_ID")
+                    or "Qwen/Qwen2.5-3B-Instruct"
+                )
+                print(f"[tokenizer] Converting '{tok_id}' into {out_dir} (local GGUF)...")
+                ok = _convert_tokenizer_with_options(tok_id, out_dir)
+                if not ok:
+                    # Try optional install and retry
+                    if _maybe_auto_install("openvino-tokenizers[transformers]", "tokenizer conversion support"):
+                        ok = _convert_tokenizer_with_options(tok_id, out_dir)
+                        if not ok:
+                            _maybe_auto_install("transformers[sentencepiece] tiktoken", "HF tokenizer conversion dependencies")
+                            _convert_tokenizer_with_options(tok_id, out_dir)
+            return (p, out_dir)
 
         # Case 3: treat as Hugging Face repo id and download GGUF
         if self._is_repo_id(raw):
@@ -293,7 +361,13 @@ class OpenVINOModel(ModelInterface):
                 from huggingface_hub import hf_hub_download  # type: ignore
             except Exception as e:
                 print(f"[hint] Install huggingface-hub for auto-download: pip install huggingface-hub\nError: {e}")
-                return (None, None)
+                if _maybe_auto_install("huggingface-hub", "download GGUF via HF Hub"):
+                    try:
+                        from huggingface_hub import hf_hub_download  # type: ignore
+                    except Exception:
+                        return (None, None)
+                else:
+                    return (None, None)
 
             filename = self._gguf_filename or os.environ.get("GGUF_FILENAME", "qwen2.5-3b-instruct-q4_k_m.gguf")
             try:
@@ -309,20 +383,16 @@ class OpenVINOModel(ModelInterface):
                 or os.environ.get("TOKENIZER_ID")
                 or (raw[:-6] if raw.endswith("-GGUF") else raw)
             )
-            tok_dir = gguf_path.parent
+            # Choose output dir: env override, else project 'models' dir if present, else cache dir
+            tok_dir = Path(os.environ.get("TOKENIZER_OUT_DIR") or (Path("models") if Path("models").exists() else gguf_path.parent))
             tok_xml = tok_dir / "openvino_tokenizer.xml"
             if not tok_xml.exists():
-                try:
-                    from openvino_tokenizers import convert_tokenizer  # type: ignore
-                except Exception as e:
-                    print("[hint] Install openvino-tokenizers to auto-convert tokenizer: pip install openvino-tokenizers")
-                    print(f"[tokenizer] Missing tokenizer IR at {tok_dir}; unable to convert automatically. Error: {e}")
-                else:
-                    try:
-                        print(f"[tokenizer] Converting tokenizer from '{tok_id}' into {tok_dir} ...")
-                        convert_tokenizer(tok_id, tok_dir)
-                    except Exception as e:
-                        print(f"[tokenizer] Conversion failed: {e}")
+                print(f"[tokenizer] Converting tokenizer from '{tok_id}' into {tok_dir} (repo GGUF) ...")
+                if not _convert_tokenizer_with_options(tok_id, tok_dir):
+                    if _maybe_auto_install("openvino-tokenizers[transformers]", "tokenizer conversion support"):
+                        if not _convert_tokenizer_with_options(tok_id, tok_dir):
+                            _maybe_auto_install("transformers[sentencepiece] tiktoken", "HF tokenizer conversion dependencies")
+                            _convert_tokenizer_with_options(tok_id, tok_dir)
             return (gguf_path, tok_dir)
 
         # Fallback: string path that doesn't exist; let TextGeneration try
@@ -358,6 +428,10 @@ class OpenVINOModel(ModelInterface):
                 " - GGUFは `convert_tokenizer` 必須\n"
                 f"Error: {e}")
             self._pipe = self._cfg = self._ov_pipe = self._ov_cfg = None
+
+
+    def is_ready(self) -> bool:
+        return (self._ov_pipe is not None) or (self._pipe is not None)
 
 
     # --- chat-style conditioning ---
@@ -474,7 +548,19 @@ class ChatBotFactory:
         choice = (backend or os.environ.get("LLM_BACKEND", "openvino")).strip().lower()
         if choice == "openvino":
             ov_path = name.split(":", 1)[1].strip() if name.lower().startswith("openvino:") else name
-            return OpenVINOModel(model_path=ov_path, gguf_filename=gguf_filename)
+            ov_model = OpenVINOModel(model_path=ov_path, gguf_filename=gguf_filename)
+            # Graceful fallback if OpenVINO failed to initialize
+            if hasattr(ov_model, "is_ready") and not ov_model.is_ready():
+                lname = ov_path.lower()
+                print("[fallback] OpenVINO not ready; attempting alternative backend...")
+                if lname.endswith(".gguf") or "gguf" in lname:
+                    try:
+                        return LlamaCppModel(repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF", filename=gguf_filename or ov_path)
+                    except Exception:
+                        pass
+                # Default fallback to transformers
+                return TransformersModel(name)
+            return ov_model
         if choice == "llama":
             if "/" in name and not name.lower().endswith(".gguf"):
                 return LlamaCppModel(repo_id=name, filename=gguf_filename)
@@ -485,7 +571,8 @@ class ChatBotFactory:
         # Auto-detect
         lname = name.lower()
         if lname.startswith("openvino:"):
-            return OpenVINOModel(model_path=name.split(":", 1)[1].strip())
+            ov_model = OpenVINOModel(model_path=name.split(":", 1)[1].strip())
+            return ov_model if ov_model.is_ready() else TransformersModel(name)
         if lname.endswith(".gguf") or "gguf" in lname:
             if "/" in name and not lname.endswith(".gguf"):
                 return LlamaCppModel(repo_id=name, filename=gguf_filename)
@@ -568,12 +655,20 @@ def parse_args():
         default=os.environ.get("LLM_BACKEND", "openvino"),
         help="Backend: auto, openvino, llama, transformers (default: openvino)."
     )
+    parser.add_argument(
+        "--auto-install-tokenizers",
+        action="store_true",
+        help="Allow runtime pip install for tokenizer conversion dependencies."
+    )
     return parser.parse_args()
 
 
 def main():
     """Main entry point."""
     args = parse_args()
+    if args.auto_install_tokenizers:
+        # Signal optional runtime install to the OpenVINO path
+        os.environ["AUTO_INSTALL_TOKENIZERS"] = "1"
     
     model = ChatBotFactory.create_model(args.model, gguf_filename=args.gguf_filename, backend=args.backend)
     chat = ChatInterface(model)
