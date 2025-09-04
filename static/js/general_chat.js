@@ -11,6 +11,25 @@ function append(role, text) {
   box.scrollTop = box.scrollHeight;
 }
 
+function appendTyping(role, text, speed = 30) {
+  const p = document.createElement('p');
+  const prefix = role === 'user' ? 'あなた: ' : 'AI: ';
+  p.textContent = prefix;
+  p.className = 'chat-msg';
+  box.appendChild(p);
+  box.scrollTop = box.scrollHeight;
+  let i = 0;
+  function typeNext() {
+    if (i < text.length) {
+      p.textContent += text.charAt(i);
+      i += 1;
+      box.scrollTop = box.scrollHeight;
+      setTimeout(typeNext, speed);
+    }
+  }
+  typeNext();
+}
+
 async function loadMessages() {
   try {
     const res = await fetch('/chat_messages');
@@ -33,7 +52,7 @@ async function send() {
       body: JSON.stringify({ message: text })
     });
     const data = await res.json();
-    append('assistant', data.reply || '');
+    appendTyping('assistant', data.reply || '');
   } catch (err) {
     append('assistant', 'エラーが発生しました');
   }
