@@ -304,12 +304,6 @@ class OpenVINOModel(ModelInterface):
 
         # Case 3: treat as Hugging Face repo id and download GGUF
         if self._is_repo_id(raw):
-            try:
-                from huggingface_hub import hf_hub_download  # type: ignore
-            except Exception as e:
-                print(f"[hint] huggingface-hub not available ({e}). Will try CLI if present.")
-                hf_hub_download = None  # type: ignore
-
             # Normalize common typos like '-GGU' -> '-GGUF'
             repo_id = raw
             if repo_id.endswith("-GGU"):
@@ -330,51 +324,19 @@ class OpenVINOModel(ModelInterface):
                     "qwen2.5-1.5b-instruct-q4_k_m.gguf",
                 ]
             gguf_path = None
-            last_err = None
             for filename in candidates:
-                # Try Python API first, if available
-                if hf_hub_download is not None:
-                    try:
-                        out_dir = Path(os.environ.get("HF_LOCAL_DIR", "models"))
-                        out_dir.mkdir(parents=True, exist_ok=True)
-                        local_file = hf_hub_download(
-                            repo_id=repo_id,
-                            filename=filename,
-                            local_dir=str(out_dir),
-                        )
-                        gguf_path = Path(local_file)
-                        break
-                    except Exception as e:
-                        last_err = e
-                # Fallback to CLI
-                if gguf_path is None:
-                    out_dir = Path(os.environ.get("HF_LOCAL_DIR", "models"))
-                    cli_path = _download_gguf_via_cli(repo_id, filename, out_dir)
-                    if cli_path is not None:
-                        gguf_path = cli_path
-                        break
+                out_dir = Path(os.environ.get("HF_LOCAL_DIR", "models"))
+                out_dir.mkdir(parents=True, exist_ok=True)
+                cli_path = _download_gguf_via_cli(repo_id, filename, out_dir)
+                if cli_path is not None:
+                    gguf_path = cli_path
+                    break
             if gguf_path is None:
                 print("[download] Failed to fetch any GGUF file. Tried:")
                 for fn in candidates:
                     print(f" - {repo_id}/{fn}")
-                if last_err is not None:
-                    print(f"Last error: {last_err}")
+                print("Hint: ensure 'huggingface-cli' is installed (pip install -U huggingface-hub).")
                 print("Hint: pass --gguf-filename <file.gguf> or set GGUF_FILENAME if your repo uses a different name.")
-                # Try auto-install of huggingface-hub and retry once via API
-                if _maybe_auto_install("huggingface-hub", "download GGUF via HF Hub"):
-                    try:
-                        from huggingface_hub import hf_hub_download as _retry_hf_download  # type: ignore
-                        for filename in candidates:
-                            try:
-                                local_file = _retry_hf_download(repo_id=repo_id, filename=filename)
-                                gguf_path = Path(local_file)
-                                break
-                            except Exception:
-                                continue
-                    except Exception:
-                        pass
-                if gguf_path is None:
-                    return (None, None)
                 return (None, None)
 
             # Tokenizer id: drop -GGUF suffix if present, or use provided env/arg

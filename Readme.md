@@ -12,7 +12,7 @@ This project compares two golf swing videos with OpenVINO and includes a web int
  Notes on models and backends:
  - Pose model default path is `intel/human-pose-estimation-0001/FP16/human-pose-estimation-0001.xml` (see `backend/config.py:Settings.MODEL_XML`). Adjust if your IR is elsewhere or a different precision.
  - General chatbot backends supported: `transformers` (HF), `llama.cpp` (GGUF), and `OpenVINO GenAI`. Select via `LLM_BACKEND` env var: `auto | transformers | llama | openvino` (default: `openvino`).
-  - When using OpenVINO with GGUF, the app can auto-download the model (via `huggingface_hub`) and auto-convert the tokenizer (via `openvino-tokenizers`) when you pass a repo id like `bartowski/Qwen2.5-1.5B-Instruct-GGUF`.
+ - When using OpenVINO with GGUF, the app can auto-download the model (via `huggingface-cli`) and auto-convert the tokenizer (via `openvino-tokenizers`) when you pass a repo id like `bartowski/Qwen2.5-1.5B-Instruct-GGUF`.
 
 ## Installation
 
@@ -100,7 +100,7 @@ Use the provided scripts to download the community GGUF build from `bartowski/Qw
 ./scripts/download_model.ps1 -RepoId "bartowski/Qwen2.5-1.5B-Instruct-GGUF" -Filename "qwen2.5-1.5b-instruct-q4_k_m.gguf" -LocalDir "models"
 ```
 
-- Python (cross‑platform) with `huggingface_hub`:
+- Python (cross‑platform) wrapper around `huggingface-cli`:
 
 ```
 python scripts/download_model.py --repo bartowski/Qwen2.5-1.5B-Instruct-GGUF --file Qwen2.5-1.5B-Instruct-Q4_K_M.gguf --out models
@@ -113,8 +113,7 @@ python scripts/download_model.py
 ```
 
 Prerequisites:
-- PowerShell script: `huggingface-cli` available in `PATH` (`pip install -U huggingface-hub`).
-- Python script: `huggingface_hub` Python package (`pip install -U huggingface-hub`).
+- `huggingface-cli` available in `PATH` (`pip install -U huggingface-hub`).
 
 Tips:
 - You can swap `qwen2.5-1.5b-instruct-q4_k_m.gguf` for another quant (e.g., `q4_k_s`, `q5_k_m`, `q8_0`).
