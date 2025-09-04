@@ -1,5 +1,5 @@
 param(
-  [string]$RepoId = "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+  [string]$RepoId = "bartowski/Qwen2.5-1.5B-Instruct-GGUF",
   [string]$Filename = "qwen2.5-1.5b-instruct-q4_k_m.gguf",
   [string]$LocalDir = "models"
 )
