@@ -165,6 +165,12 @@ def index(request: Request):
         },
     )
 
+
+@app.get("/chat", response_class=HTMLResponse)
+def chat_page(request: Request):
+    """Serve the standalone general-purpose chatbot page."""
+    return templates.TemplateResponse("chat.html", {"request": request})
+
 @app.api_route("/chat_messages", methods=["GET", "POST"])
 async def chat_messages_handler(request: Request):
     """Handle messages for the general-purpose chatbot."""
