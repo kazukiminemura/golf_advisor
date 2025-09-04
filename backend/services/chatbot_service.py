@@ -5,7 +5,8 @@ from typing import Optional, List, Dict
 
 from backend.config import Settings
 from backend.services.swing_chatbot import EnhancedSwingChatBot
-from simple_chatbot import SimpleChatBot
+from backend.simple_chatbot import SimpleChatBot
+from backend.simple_chatbot.config import ChatbotConfig
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -37,10 +38,11 @@ class ChatbotService:
 
     def general_ask(self, message: str) -> str:
         if self._general_bot is None:
+            cfg = ChatbotConfig()
             self._general_bot = SimpleChatBot(
-                model_name=Settings.CHAT_MODEL,
-                gguf_filename=Settings.CHAT_GGUF_FILENAME,
-                backend=Settings.LLM_BACKEND,
+                model_name=cfg.model_name,
+                gguf_filename=cfg.gguf_filename,
+                backend=cfg.backend,
             )
         self._general_messages.append({"role": "user", "content": message})
         reply = self._general_bot.ask(message)
