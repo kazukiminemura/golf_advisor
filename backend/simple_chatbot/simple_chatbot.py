@@ -194,7 +194,15 @@ def _download_gguf_via_cli(repo_id: str, filename: str, out_dir: Path) -> Option
     """Attempt GGUF download using `huggingface-cli` and return local path.
 
     Searches `out_dir` recursively for `filename` after download.
+
+    If the file already exists locally, the download is skipped.
     """
+    # If file already present, skip invoking the CLI to avoid re-downloads
+    existing = next(out_dir.rglob(filename), None)
+    if existing is not None:
+        print(f"[hf-cli] Found existing {existing}, skipping download")
+        return existing
+
     cmd = ["huggingface-cli", "download", repo_id, filename, "--local-dir", str(out_dir)]
     if shutil.which(cmd[0]) is None:
         print("[hf-cli] 'huggingface-cli' not found in PATH")
