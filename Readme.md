@@ -112,8 +112,15 @@ Or simply use defaults (no arguments):
 python scripts/download_model.py
 ```
 
+- Python script using `huggingface_hub` (no CLI required):
+
+```
+python scripts/download_ai_model.py
+```
+
 Prerequisites:
-- `huggingface-cli` available in `PATH` (`pip install -U huggingface-hub`).
+- For `download_model.py`: `huggingface-cli` available in `PATH` (`pip install -U huggingface-hub`).
+- For `download_ai_model.py`: `huggingface_hub` Python package (`pip install -U huggingface-hub`).
 
 Tips:
 - You can swap `qwen2.5-1.5b-instruct-q4_k_m.gguf` for another quant (e.g., `q4_k_s`, `q5_k_m`, `q8_0`).
