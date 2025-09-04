@@ -43,7 +43,7 @@ A minimal FastAPI application displays reference and test videos next to a chat 
 
 ## Simple Web Chatbot
 
-A lightweight general-purpose chatbot is available at `http://localhost:8000/chat`. It uses a small DialoGPT model and stores the conversation only for the current session.
+A lightweight general-purpose chatbot is available at `http://localhost:8000/chat`. It uses the modular `simple_chatbot.py` LLM wrapper (default: Qwen2.5 3B Instruct via OpenVINO) and stores the conversation only for the current session.
 
 Backend selection and env vars:
 - `LLM_BACKEND`: `auto | transformers | llama | openvino` (default: `openvino`)

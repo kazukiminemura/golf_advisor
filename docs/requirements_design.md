@@ -48,7 +48,7 @@
 
 
 7. **一般向けチャット**
-   - DialoGPTベースの軽量チャットボットを `/chat` ページで提供する
+    - `simple_chatbot.py` に基づく軽量LLMチャットボットを `/chat` ページで提供する（デフォルトは OpenVINO で動作する Qwen 系モデル）
 
 
 
@@ -108,7 +108,7 @@
 
 
 3. **simple_chatbot.py**
-   - `SimpleChatBot`がDialoGPTモデルをロードし、会話履歴を維持しながら応答を生成する
+    - `SimpleChatBot` が Qwen などのLLMをバックエンド経由でロードし、会話履歴を維持しながら応答を生成する
 
 
 
