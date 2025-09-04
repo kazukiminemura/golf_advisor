@@ -34,6 +34,19 @@ export class ChatController {
     if (this.sendBtn) this.sendBtn.disabled = !enabled;
   }
 
+  typeText(el, text, speed = 30) {
+    let i = 0;
+    const step = () => {
+      if (i < text.length) {
+        el.textContent += text.charAt(i);
+        i += 1;
+        if (this.box) this.box.scrollTop = this.box.scrollHeight;
+        setTimeout(step, speed);
+      }
+    };
+    step();
+  }
+
   async updateStatus() {
     try {
       const status = await chatbotStatus();
@@ -93,17 +106,18 @@ export class ChatController {
       const coachP = document.createElement('p');
       coachP.textContent = 'コーチ: ';
       this.box.appendChild(coachP);
+      this.box.scrollTop = this.box.scrollHeight;
 
       try {
+        let full = '';
         await sendMessageStream(text, (chunk) => {
-          coachP.textContent += chunk;
-          this.box.scrollTop = this.box.scrollHeight;
+          full += chunk;
         });
+        this.typeText(coachP, full);
       } catch (e) {
         coachP.textContent += '返答の取得に失敗しました';
         coachP.style.color = 'red';
       }
-      this.box.scrollTop = this.box.scrollHeight;
     };
 
     this.input.addEventListener('keydown', (e) => {
