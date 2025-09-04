@@ -529,7 +529,7 @@ class ChatBotFactory:
         if choice in {"openvion", "openvino", "auto", ""}:
             # Map sentinel 'openvion' model name to default Qwen GGUF repo
             if name.lower() in {"openvion", "openvino", "", "default"}:
-                name = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"
+                name = "bartowski/Qwen2.5-1.5B-Instruct-GGUF"
             ov_path = name.split(":", 1)[1].strip() if name.lower().startswith("openvino:") else name
             return OpenVINOModel(model_path=ov_path, gguf_filename=gguf_filename)
 
@@ -565,10 +565,10 @@ class SimpleChatBot:
     ----------
     model_name:
         Name of the model backend to use. Defaults to
-        ``"Qwen/Qwen2.5-1.5B-Instruct-GGUF"``.
+        ``"bartowski/Qwen2.5-1.5B-Instruct-GGUF"``.
     """
 
-    def __init__(self, model_name: str = "Qwen/Qwen2.5-1.5B-Instruct-GGUF", gguf_filename: Optional[str] = None, backend: Optional[str] = None):
+    def __init__(self, model_name: str = "bartowski/Qwen2.5-1.5B-Instruct-GGUF", gguf_filename: Optional[str] = None, backend: Optional[str] = None):
         global _SHARED_MODEL
         # Reuse a preloaded model if present; otherwise build a fresh one.
         if _SHARED_MODEL is None:
@@ -598,14 +598,14 @@ def parse_args():
         default="openvion",
         help=(
             "Model to use. Default: 'openvion' sentinel which maps to "
-            "Qwen/Qwen2.5-1.5B-Instruct-GGUF with GGUF 'qwen2.5-1.5b-instruct-q4_k_m.gguf'. "
+            "bartowski/Qwen2.5-1.5B-Instruct-GGUF with GGUF 'Qwen2.5-1.5B-Instruct-Q4_K_M.gguf'. "
             "Also accepts repo id (e.g. 'Qwen/Qwen2.5-1.5B-Instruct-GGUF'), 'echo', or "
             "'openvino:<path_to_ov_or_gguf>'."
         )
     )
     parser.add_argument(
         "--gguf-filename",
-        default="qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        default="Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
         help="GGUF filename within the repo (used for OpenVINO GGUF downloads)"
     )
     parser.add_argument(
