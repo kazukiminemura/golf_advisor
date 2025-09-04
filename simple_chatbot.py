@@ -11,7 +11,7 @@ This refactor simplifies the original implementation by:
 import argparse
 import os
 from abc import ABC, abstractmethod
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Callable
 from pathlib import Path
 import sys
 import subprocess
@@ -19,18 +19,34 @@ import shutil
 
 
 class ModelInterface(ABC):
-    """Abstract interface for different model backends."""
-    
+    """Abstract interface for different model backends.
+
+    - SRP: Concerned only with text generation.
+    - ISP: Optional chat hooks are defined as separate protocols below.
+    """
+
     @abstractmethod
     def generate_response(self, message: str) -> str:
         pass
 
-    # Optional chat-style hooks (no-op by default)
-    def set_system_prompt(self, prompt: str) -> None:  # pragma: no cover - optional
-        return None
 
-    def reset_history(self) -> None:  # pragma: no cover - optional
-        return None
+# ISP: Optional hook protocols (kept separate from core interface)
+try:  # pragma: no cover - safe fallback for environments without Protocol
+    from typing import Protocol, runtime_checkable  # type: ignore
+except Exception:  # pragma: no cover
+    Protocol = object  # type: ignore
+    def runtime_checkable(x):  # type: ignore
+        return x
+
+
+@runtime_checkable
+class SupportsSystemPrompt(Protocol):
+    def set_system_prompt(self, prompt: str) -> None: ...
+
+
+@runtime_checkable
+class SupportsResetHistory(Protocol):
+    def reset_history(self) -> None: ...
 
 
 def _env_int(name: str, default: int) -> int:
@@ -504,7 +520,14 @@ class ChatInterface:
 
 
 class ChatBotFactory:
-    """Factory for creating different types of chatbots."""
+    """Factory for creating different types of chatbots.
+
+    - OCP: New backends plug in via `register_backend`.
+    - DIP: Callers depend on `ModelInterface` and this registry API.
+    """
+
+    _BackendFactory = Callable[[str, Optional[str]], ModelInterface]
+    _registry: Dict[str, _BackendFactory] = {}
 
     @staticmethod
     def _env_flag(name: str, default: str = "") -> bool:
@@ -512,29 +535,44 @@ class ChatBotFactory:
         return os.environ.get(name, default).strip().lower() in {"1", "true", "yes"}
 
     @classmethod
-    def create_model(cls, model_name: str, gguf_filename: Optional[str] = None, backend: Optional[str] = None) -> ModelInterface:
-        """Select and build a model (OpenVINO-focused).
+    def register_backend(cls, name: str, factory: _BackendFactory) -> None:
+        cls._registry[name.lower()] = factory
 
-        Rules:
-        - If CHATBOT_DEBUG or model == 'echo' -> Echo
-        - Backend 'openvion' or 'openvino' (or auto): use OpenVINOModel
-        - Sentinel model 'openvion' maps to default Qwen GGUF repo
-        """
+    @classmethod
+    def create_model(cls, model_name: str, gguf_filename: Optional[str] = None, backend: Optional[str] = None) -> ModelInterface:
+        """Select and build a model using the registered backend (OpenVINO by default)."""
         name = (model_name or "").strip()
 
+        # Debug/echo short-circuit
         if cls._env_flag("CHATBOT_DEBUG") or name.lower() == "echo":
             return EchoModel(prefix="(debug) " if name.lower() != "echo" else "Echo: ")
 
+        # Backend selection with sensible default
         choice = (backend or os.environ.get("LLM_BACKEND", "openvion")).strip().lower()
-        if choice in {"openvion", "openvino", "auto", ""}:
-            # Map sentinel 'openvion' model name to default Qwen GGUF repo
-            if name.lower() in {"openvion", "openvino", "", "default"}:
-                name = "bartowski/Qwen2.5-1.5B-Instruct-GGUF"
-            ov_path = name.split(":", 1)[1].strip() if name.lower().startswith("openvino:") else name
-            return OpenVINOModel(model_path=ov_path, gguf_filename=gguf_filename)
+        if choice in {"", "auto"}:
+            choice = "openvion"
 
-        # Any other backend choices have been removed in this refactor
-        raise ValueError(f"Unsupported backend '{choice}'. Use 'openvion' (OpenVINO).")
+        factory = cls._registry.get(choice)
+        if factory is None:
+            raise ValueError(f"Unsupported backend '{choice}'. Registered: {sorted(cls._registry.keys())}")
+
+        # Map sentinel names to a default repo
+        norm_name = name
+        if norm_name.lower() in {"openvion", "openvino", "", "default"}:
+            norm_name = "bartowski/Qwen2.5-1.5B-Instruct-GGUF"
+
+        # Normalize explicit openvino:<path>
+        ov_path = norm_name.split(":", 1)[1].strip() if norm_name.lower().startswith("openvino:") else norm_name
+        return factory(ov_path, gguf_filename)
+
+
+# Register default OpenVINO backend(s)
+def _openvino_backend_factory(model_name: str, gguf_filename: Optional[str]) -> ModelInterface:
+    return OpenVINOModel(model_path=model_name, gguf_filename=gguf_filename)
+
+
+ChatBotFactory.register_backend("openvion", _openvino_backend_factory)
+ChatBotFactory.register_backend("openvino", _openvino_backend_factory)
 
 
 # Shared model cache for quick reuse across instances
@@ -582,12 +620,26 @@ class SimpleChatBot:
 
     # Expose optional hooks when available
     def set_system_prompt(self, prompt: str) -> None:
-        if hasattr(self._model, "set_system_prompt"):
-            self._model.set_system_prompt(prompt)  # type: ignore[attr-defined]
+        model = self._model
+        try:
+            if isinstance(model, SupportsSystemPrompt):  # type: ignore[arg-type]
+                model.set_system_prompt(prompt)
+                return
+        except Exception:
+            pass
+        if hasattr(model, "set_system_prompt"):
+            getattr(model, "set_system_prompt")(prompt)
 
     def reset_history(self) -> None:
-        if hasattr(self._model, "reset_history"):
-            self._model.reset_history()  # type: ignore[attr-defined]
+        model = self._model
+        try:
+            if isinstance(model, SupportsResetHistory):  # type: ignore[arg-type]
+                model.reset_history()
+                return
+        except Exception:
+            pass
+        if hasattr(model, "reset_history"):
+            getattr(model, "reset_history")()
 
 
 def parse_args():
