@@ -172,15 +172,17 @@ async def chat_messages_handler(request: Request):
         user_msg = data.get("message", "").strip()
         if not user_msg:
             return JSONResponse({"reply": ""})
-        reply = chat.general_ask(user_msg)
-        msgs = chat.general_messages()
-        if len(msgs) > MAX_MESSAGES:
-            msgs[:] = msgs[-MAX_MESSAGES:]
         if "text/event-stream" in request.headers.get("accept", ""):
+            def stream():
+                for ch in chat.general_ask_stream(user_msg, max_messages=MAX_MESSAGES):
+                    yield ch
+
             async def event_stream():
-                for ch in reply:
+                for ch in stream():
                     yield f"data: {ch}\n\n"
+
             return StreamingResponse(event_stream(), media_type="text/event-stream")
+        reply = "".join(chat.general_ask_stream(user_msg, max_messages=MAX_MESSAGES))
         return JSONResponse({"reply": reply})
     else:
         return JSONResponse(chat.general_messages())
@@ -206,12 +208,16 @@ async def message_handler(request: Request):
                 return JSONResponse({"reply": "チャットボットは準備中です。まず動画を分析してください。"})
 
         try:
-            reply = chat.swing_ask(user_msg, max_messages=MAX_MESSAGES)
             if "text/event-stream" in request.headers.get("accept", ""):
+                def stream():
+                    yield from chat.swing_ask_stream(user_msg, max_messages=MAX_MESSAGES)
+
                 async def event_stream():
-                    for ch in reply:
+                    for ch in stream():
                         yield f"data: {ch}\n\n"
+
                 return StreamingResponse(event_stream(), media_type="text/event-stream")
+            reply = "".join(chat.swing_ask_stream(user_msg, max_messages=MAX_MESSAGES))
             return JSONResponse({"reply": reply})
             
         except Exception as exc:

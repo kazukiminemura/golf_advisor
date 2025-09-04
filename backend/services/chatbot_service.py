@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Iterable
 
 from backend.config import Settings
 from backend.services.swing_chatbot import EnhancedSwingChatBot
@@ -36,7 +36,7 @@ class ChatbotService:
     def general_messages(self) -> List[Dict[str, str]]:
         return self._general_messages
 
-    def general_ask(self, message: str) -> str:
+    def general_ask_stream(self, message: str, max_messages: int | None = None) -> Iterable[str]:
         if self._general_bot is None:
             cfg = ChatbotConfig()
             self._general_bot = SimpleChatBot(
@@ -45,9 +45,16 @@ class ChatbotService:
                 backend=cfg.backend,
             )
         self._general_messages.append({"role": "user", "content": message})
-        reply = self._general_bot.ask(message)
-        self._general_messages.append({"role": "assistant", "content": reply})
-        return reply
+        parts: List[str] = []
+        for ch in self._general_bot.ask_stream(message):
+            parts.append(ch)
+            yield ch
+        self._general_messages.append({"role": "assistant", "content": "".join(parts)})
+        if max_messages is not None and len(self._general_messages) > max_messages:
+            self._general_messages[:] = self._general_messages[-max_messages:]
+
+    def general_ask(self, message: str, max_messages: int | None = None) -> str:
+        return "".join(self.general_ask_stream(message, max_messages=max_messages))
 
     def general_clear(self) -> None:
         self._general_messages.clear()
@@ -86,15 +93,25 @@ class ChatbotService:
     def swing_messages(self) -> List[Dict[str, str]]:
         return self._swing_messages
 
-    def swing_ask(self, message: str, max_messages: int = 20) -> str:
+    def swing_ask_stream(self, message: str, max_messages: int = 20) -> Iterable[str]:
         if self._swing_bot is None:
             raise RuntimeError("Swing chatbot not initialized")
         self._swing_messages.append({"role": "user", "content": message})
-        # Trim history
         if len(self._swing_messages) > max_messages:
             self._swing_messages[:] = self._swing_messages[-max_messages:]
-        reply = self._swing_bot.ask(message)
-        self._swing_messages.append({"role": "assistant", "content": reply})
+
+        parts: List[str] = []
+        ask_stream = getattr(self._swing_bot, "ask_stream", None)
+        if callable(ask_stream):
+            iterator = ask_stream(message)
+        else:
+            iterator = iter(self._swing_bot.ask(message))
+        for ch in iterator:
+            parts.append(ch)
+            yield ch
+        self._swing_messages.append({"role": "assistant", "content": "".join(parts)})
         if len(self._swing_messages) > max_messages:
             self._swing_messages[:] = self._swing_messages[-max_messages:]
-        return reply
+
+    def swing_ask(self, message: str, max_messages: int = 20) -> str:
+        return "".join(self.swing_ask_stream(message, max_messages=max_messages))

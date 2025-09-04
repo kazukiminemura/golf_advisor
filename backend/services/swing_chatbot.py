@@ -104,5 +104,15 @@ class EnhancedSwingChatBot:
         except Exception:
             return self._generate_advice()
 
+    def ask_stream(self, message: str):
+        """Yield a reply incrementally for streaming clients."""
+        try:
+            for chunk in self._simple_bot.ask_stream(message):
+                yield chunk
+        except Exception:
+            advice = self._generate_advice()
+            for ch in advice:
+                yield ch
+
 
 __all__ = ["EnhancedSwingChatBot"]
