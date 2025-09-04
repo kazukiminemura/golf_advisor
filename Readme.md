@@ -67,6 +67,12 @@ FastAPI routes in `app.py` delegate to these services, reducing global state and
 
 Use these commands to prepare local model files in the `models` directory.
 
+- Download LLM model:
+
+```
+huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct-GGUF qwen2.5-1.5b-instruct-q4_k_m.gguf --local-dir models
+```
+
 - Convert tokenizer with detokenizer:
 
 ```
@@ -77,12 +83,6 @@ Or using the integrated helper in `backend.simple_chatbot` (no separate CLI requ
 
 ```
 python -m backend.simple_chatbot --convert-tokenizer Qwen/Qwen2.5-1.5B-Instruct --with-detokenizer -o models
-```
-
-- Download a quantized GGUF model:
-
-```
-huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct-GGUF qwen2.5-1.5b-instruct-q4_k_m.gguf --local-dir models
 ```
 
 Notes:
