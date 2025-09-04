@@ -16,6 +16,61 @@ from pathlib import Path
 import sys
 import subprocess
 import shutil
+from pathlib import Path as _PathForDlls
+
+
+def _prepare_windows_openvino_dlls() -> None:
+    """On Windows, ensure dependent DLL directories are on the search path.
+
+    Addresses errors like Windows loader error 126 when loading
+    openvino_tokenizers.dll by adding relevant site-packages folders to the
+    DLL search path for the current process.
+    """
+    if os.name != "nt":
+        return
+    try:
+        # Python 3.8+ requires explicit addition of DLL directories
+        add_dir = getattr(os, "add_dll_directory", None)
+        paths_added = []
+        if add_dir is None:  # Older Python on Windows
+            return
+        # Try to locate openvino and openvino-tokenizers package lib folders
+        try:
+            import openvino  # type: ignore
+            ov_libs = _PathForDlls(openvino.__file__).parent / "libs"
+            if ov_libs.exists():
+                add_dir(str(ov_libs))
+                os.environ["PATH"] = str(ov_libs) + os.pathsep + os.environ.get("PATH", "")
+                paths_added.append(str(ov_libs))
+        except Exception:
+            pass
+        try:
+            import openvino_tokenizers  # type: ignore
+            ovt_lib = _PathForDlls(openvino_tokenizers.__file__).parent / "lib"
+            if ovt_lib.exists():
+                add_dir(str(ovt_lib))
+                os.environ["PATH"] = str(ovt_lib) + os.pathsep + os.environ.get("PATH", "")
+                paths_added.append(str(ovt_lib))
+        except Exception:
+            pass
+        # Optionally add openvino_genai binary dir if present
+        try:
+            import openvino_genai  # type: ignore
+            genai_dir = _PathForDlls(openvino_genai.__file__).parent
+            # Some wheel layouts may place binaries alongside the package
+            for candidate in {genai_dir, genai_dir / "bin", genai_dir / "libs"}:
+                if candidate.exists():
+                    add_dir(str(candidate))
+                    os.environ["PATH"] = str(candidate) + os.pathsep + os.environ.get("PATH", "")
+                    paths_added.append(str(candidate))
+                    break
+        except Exception:
+            pass
+        if os.environ.get("OV_DLL_DEBUG", "").lower() in {"1", "true", "yes"} and paths_added:
+            print(f"[OV][DLL] Added search paths: {paths_added}")
+    except Exception:
+        # Best-effort only; fall through to normal import behavior
+        pass
 
 
 class ModelInterface(ABC):
@@ -372,6 +427,8 @@ class OpenVINOModel(ModelInterface):
 
     def _load_model(self) -> None:
         try:
+            # Ensure Windows can locate dependent DLLs for OpenVINO/tokenizers
+            _prepare_windows_openvino_dlls()
             gguf_path, aux_path = self._ensure_resources()
             if gguf_path is not None:
                 # --- GGUF path: Tokenizer + LLMPipeline ---
