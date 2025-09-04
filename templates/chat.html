@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>シンプルチャットボット</title>
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/styles.css') }}">
+</head>
+<body>
+  <div class="chat-container">
+    <div id="chat-messages"></div>
+    <div class="chat-input">
+      <input id="chat-input" type="text" placeholder="メッセージを入力..." />
+      <button id="send-btn">送信</button>
+    </div>
+  </div>
+  <script type="module" src="{{ request.url_for('static', path='js/general_chat.js') }}"></script>
+</body>
+</html>
