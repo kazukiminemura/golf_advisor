@@ -2,7 +2,7 @@
 
 This refactor simplifies the original implementation by:
 - Defaulting to the OpenVINO backend (alias: "openvion")
-- Auto-downloading Qwen2.5 3B Instruct GGUF and converting tokenizer
+- Auto-downloading Qwen2.5 1.5B Instruct GGUF and converting tokenizer
 - Removing unused backends (Transformers, Llama.cpp) to reduce complexity
 - Keeping backward compatibility via SimpleChatBot.ask
 """
