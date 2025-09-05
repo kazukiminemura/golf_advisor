@@ -12,6 +12,16 @@ export class ChatController {
     this.statusDiv = document.getElementById('chat-status');
   }
 
+  cleanLLMText(text) {
+    if (!text) return '';
+    let t = text;
+    // Remove visible speaker prefixes
+    t = t.replace(/^\s*(あなた|コーチ)[:：]\s*/gm, '');
+    // Remove Markdown heading markers like ### Heading
+    t = t.replace(/(^|\n)\s*#{1,6}\s+/g, (m, p1) => (p1 ? '\n' : ''));
+    return t;
+  }
+
   ensureGeneratingPlaceholder() {
     if (!this.box) return;
     if (!document.getElementById('init-loading')) {
@@ -81,11 +91,7 @@ export class ChatController {
       this.box.innerHTML = '';
       msgs.forEach(m => {
         const p = document.createElement('p');
-        // Render without textual prefixes; style via CSS badges
-        let content = m.content || '';
-        // In case historical messages contain prefixes, strip them
-        content = content.replace(/^\s*(あなた|コーチ)[:：]\s*/, '');
-        p.textContent = content;
+        p.textContent = this.cleanLLMText(m.content || '');
         p.className = 'chat-msg ' + (m.role === 'user' ? 'user-msg' : 'assistant-msg');
         this.box.appendChild(p);
       });
@@ -103,7 +109,7 @@ export class ChatController {
       const text = this.input.value.trim();
       if (!text) return;
       const userP = document.createElement('p');
-      userP.textContent = text;
+      userP.textContent = this.cleanLLMText(text);
       userP.className = 'chat-msg user-msg';
       this.box.appendChild(userP);
       this.input.value = '';
@@ -120,8 +126,7 @@ export class ChatController {
           full += chunk;
         });
         // Remove any accidental prefixes inside streamed content
-        const cleaned = full.replace(/^\s*(あなた|コーチ)[:：]\s*/, '');
-        this.typeText(coachP, cleaned);
+        this.typeText(coachP, this.cleanLLMText(full));
       } catch (e) {
         coachP.textContent = '返答の取得に失敗しました';
         coachP.style.color = 'red';
