@@ -19,6 +19,7 @@ export class ChatController {
       p.id = 'init-loading';
       p.textContent = 'コーチ: メッセージ生成中...';
       p.style.opacity = '0.7';
+      p.className = 'chat-msg assistant-msg';
       this.box.appendChild(p);
       this.box.scrollTop = this.box.scrollHeight;
     }
@@ -82,7 +83,7 @@ export class ChatController {
         const p = document.createElement('p');
         const prefix = m.role === 'user' ? 'あなた: ' : 'コーチ: ';
         p.textContent = prefix + m.content;
-        p.className = 'chat-msg';
+        p.className = 'chat-msg ' + (m.role === 'user' ? 'user-msg' : 'assistant-msg');
         this.box.appendChild(p);
       });
       this.box.scrollTop = this.box.scrollHeight;
@@ -100,11 +101,13 @@ export class ChatController {
       if (!text) return;
       const userP = document.createElement('p');
       userP.textContent = 'あなた: ' + text;
+      userP.className = 'chat-msg user-msg';
       this.box.appendChild(userP);
       this.input.value = '';
 
       const coachP = document.createElement('p');
       coachP.textContent = 'コーチ: ';
+      coachP.className = 'chat-msg assistant-msg';
       this.box.appendChild(coachP);
       this.box.scrollTop = this.box.scrollHeight;
 
