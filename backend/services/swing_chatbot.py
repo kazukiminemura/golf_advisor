@@ -43,6 +43,8 @@ class EnhancedSwingChatBot:
             "あなたはプロのゴルフコーチです。厳しめだが建設的に、短く具体的に助言します。\n"
             "- 日本語で回答する\n"
             "- 箇条書き中心、各行は簡潔に\n"
+            "- Markdownの見出し記号(#)は使わない\n"
+            "- 『### 〜』のような見出しは出力しない\n"
             "- 次の練習アクションを1-3個提示\n"
             f"【文脈】総合スコア: {self.score:.1f}。弱点: {worst_txt}。\n"
             "質問に合わせて、必要なら数値や体の位置を具体的に示す"
@@ -100,19 +102,32 @@ class EnhancedSwingChatBot:
 
     def ask(self, message: str) -> str:
         try:
-            return self._simple_bot.ask(message)
+            raw = self._simple_bot.ask(message)
+            return self._strip_md_headers(raw)
         except Exception:
             return self._generate_advice()
 
     def ask_stream(self, message: str):
         """Yield a reply incrementally for streaming clients."""
         try:
+            # Collect then stream cleaned content to consistently remove '###'
+            parts: list[str] = []
             for chunk in self._simple_bot.ask_stream(message):
-                yield chunk
+                parts.append(chunk)
+            cleaned = self._strip_md_headers("".join(parts))
+            for ch in cleaned:
+                yield ch
         except Exception:
             advice = self._generate_advice()
             for ch in advice:
                 yield ch
+
+    # --------------------------- helpers ---------------------------
+    @staticmethod
+    def _strip_md_headers(text: str) -> str:
+        """Remove Markdown heading markers like '### ' at line starts."""
+        import re
+        return re.sub(r"(?m)^\s*#{1,6}\s+", "", text)
 
 
 __all__ = ["EnhancedSwingChatBot"]
