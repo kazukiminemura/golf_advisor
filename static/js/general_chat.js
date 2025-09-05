@@ -6,7 +6,7 @@ function append(role, text) {
   const p = document.createElement('p');
   const prefix = role === 'user' ? 'あなた: ' : 'AI: ';
   p.textContent = prefix + text;
-  p.className = 'chat-msg';
+  p.classList.add('chat-msg', role === 'user' ? 'user-msg' : 'assistant-msg');
   box.appendChild(p);
   box.scrollTop = box.scrollHeight;
 }
@@ -15,7 +15,7 @@ function appendTyping(role, text, speed = 30) {
   const p = document.createElement('p');
   const prefix = role === 'user' ? 'あなた: ' : 'AI: ';
   p.textContent = prefix;
-  p.className = 'chat-msg';
+  p.classList.add('chat-msg', role === 'user' ? 'user-msg' : 'assistant-msg');
   box.appendChild(p);
   box.scrollTop = box.scrollHeight;
   let i = 0;
