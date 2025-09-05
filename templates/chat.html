@@ -3,15 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>シンプルチャットボット</title>
-  <link rel="stylesheet" href="{{ request.url_for('static', path='css/styles.css') }}">
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/styles.css') }}?v=4">
 </head>
 <body>
   <div class="chat-container">
     <div id="chat-messages"></div>
     <div class="chat-input">
-      <input id="chat-input" type="text" placeholder="メッセージを入力..." />
-      <button id="send-btn">送信</button>
+      <input id="chat-input" type="text" placeholder="質問してみましょう" />
+      <button id="send-btn" title="送信">➤</button>
     </div>
   </div>
   <script type="module" src="{{ request.url_for('static', path='js/general_chat.js') }}"></script>

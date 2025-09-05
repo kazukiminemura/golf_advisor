@@ -17,7 +17,7 @@ export class ChatController {
     if (!document.getElementById('init-loading')) {
       const p = document.createElement('p');
       p.id = 'init-loading';
-      p.textContent = 'コーチ: メッセージ生成中...';
+      p.textContent = 'メッセージ生成中...';
       p.style.opacity = '0.7';
       p.className = 'chat-msg assistant-msg';
       this.box.appendChild(p);
@@ -81,8 +81,11 @@ export class ChatController {
       this.box.innerHTML = '';
       msgs.forEach(m => {
         const p = document.createElement('p');
-        const prefix = m.role === 'user' ? 'あなた: ' : 'コーチ: ';
-        p.textContent = prefix + m.content;
+        // Render without textual prefixes; style via CSS badges
+        let content = m.content || '';
+        // In case historical messages contain prefixes, strip them
+        content = content.replace(/^\s*(あなた|コーチ)[:：]\s*/, '');
+        p.textContent = content;
         p.className = 'chat-msg ' + (m.role === 'user' ? 'user-msg' : 'assistant-msg');
         this.box.appendChild(p);
       });
@@ -100,13 +103,13 @@ export class ChatController {
       const text = this.input.value.trim();
       if (!text) return;
       const userP = document.createElement('p');
-      userP.textContent = 'あなた: ' + text;
+      userP.textContent = text;
       userP.className = 'chat-msg user-msg';
       this.box.appendChild(userP);
       this.input.value = '';
 
       const coachP = document.createElement('p');
-      coachP.textContent = 'コーチ: ';
+      coachP.textContent = '';
       coachP.className = 'chat-msg assistant-msg';
       this.box.appendChild(coachP);
       this.box.scrollTop = this.box.scrollHeight;
@@ -116,9 +119,11 @@ export class ChatController {
         await sendMessageStream(text, (chunk) => {
           full += chunk;
         });
-        this.typeText(coachP, full);
+        // Remove any accidental prefixes inside streamed content
+        const cleaned = full.replace(/^\s*(あなた|コーチ)[:：]\s*/, '');
+        this.typeText(coachP, cleaned);
       } catch (e) {
-        coachP.textContent += '返答の取得に失敗しました';
+        coachP.textContent = '返答の取得に失敗しました';
         coachP.style.color = 'red';
       }
     };

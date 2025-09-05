@@ -3,8 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>チャット & 動画</title>
-  <link rel="stylesheet" href="{{ request.url_for('static', path='css/styles.css') }}">
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/styles.css') }}?v=4">
 </head>
 <body>
   <!-- 動画 -->
@@ -76,8 +79,8 @@
     </div>
     <div id="chat-messages"></div>
     <div class="chat-input">
-      <input id="chat-input" type="text" placeholder="メッセージを入力.." disabled />
-      <button id="send-btn" disabled>送信</button>
+      <input id="chat-input" type="text" placeholder="質問してみましょう" disabled />
+      <button id="send-btn" disabled title="送信">➤</button>
     </div>
   </div>
   {% endif %}
@@ -93,7 +96,7 @@
       curVideoName: '{{ cur_video_name }}'
     };
   </script>
-  <script type="module" src="{{ request.url_for('static', path='js/main.js') }}"></script>
+  <script type="module" src="{{ request.url_for('static', path='js/main.js') }}?v=2"></script>
 </body>
 </html>
 
