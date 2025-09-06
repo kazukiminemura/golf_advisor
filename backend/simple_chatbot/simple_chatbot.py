@@ -20,6 +20,7 @@ import subprocess
 import shutil
 from pathlib import Path as _PathForDlls
 import math
+from llama_cpp import Llama 
 
 
 def _prepare_windows_openvino_dlls() -> None:
@@ -313,10 +314,22 @@ class LlamaCppModel(ModelInterface):
 
     @staticmethod
     def _has_nvidia_gpu() -> bool:
+        """Check if an NVIDIA GPU is available. Log details if found."""
+        nvidia_smi = shutil.which("nvidia-smi")
+        if not nvidia_smi:
+            print("[llama.cpp] nvidia-smi not found in PATH")
+            return False
+
         try:
-            out = subprocess.check_output(["nvidia-smi", "-L"], stderr=subprocess.DEVNULL)
-            return bool(out.strip())
-        except Exception:
+            out = subprocess.check_output(
+                [nvidia_smi, "-L"], stderr=subprocess.DEVNULL, universal_newlines=True
+            ).strip()
+            if out:
+                print(f"[llama.cpp] NVIDIA GPU detected:\n{out}")
+                return True
+            return False
+        except Exception as e:
+            print(f"[llama.cpp] Failed to query nvidia-smi: {e}")
             return False
 
     @staticmethod
@@ -352,27 +365,43 @@ class LlamaCppModel(ModelInterface):
         return None
 
     def _load_model(self) -> None:
-        try:
-            gguf = self._resolve_gguf()
-            if gguf is None:
-                print("[llama.cpp] GGUF not found; falling back to echo mode")
-                self._llm = None
-                return
+        """Initialize llama.cpp model (llama-cpp-python). Falls back to echo mode on failure."""
+        self._llm = None  # 明示リセット（途中で失敗しても安全）
+
+        gguf = self._resolve_gguf()
+        if not gguf:
+            print("[llama.cpp] GGUF not found; falling back to echo mode")
+            return
+
+        # ------------------------------
+        # パラメータ決定（早期・単純化）
+        # ------------------------------
+        # n_ctxは環境変数で上書き。未設定なら4096
+        n_ctx = _env_int("LLAMA_CTX", 4096)
+
+        # n_gpu_layersの決定ロジック：
+        #  - NVIDIA GPUあり:
+        #      * 未設定 or 負値 → 全レイヤーGPUへ
+        #      * 0以上 → その値を採用
+        #  - NVIDIA GPUなし: 0
+        ALL_LAYERS = 1 << 30  # “全オフロード”の明示的な大値（99999より意図が伝わる）
+        has_cuda = self._has_nvidia_gpu()
+        env_val = -1
+        if not has_cuda:
+            n_gpu_layers = 0
+        else:
             try:
-                from llama_cpp import Llama  # type: ignore
-            except Exception as e:
-                print(f"[llama.cpp] 'llama-cpp-python' not available: {e}")
-                self._llm = None
-                return
+                n_gpu_layers = int(env_val) if env_val is not None else -1
+            except ValueError:
+                n_gpu_layers = -1  # 不正値は“全オフロード”扱いにフォールバック
+            n_gpu_layers = ALL_LAYERS if n_gpu_layers < 0 else n_gpu_layers
 
-            # Determine GPU offload layers
-            n_gpu_layers = _env_int("LLAMA_N_GPU_LAYERS", -1 if self._has_nvidia_gpu() else 0)
-            if n_gpu_layers < 0:
-                # Try to offload all layers when possible; if it fails, llama-cpp will adjust
-                n_gpu_layers = 99999
+        print(f"[llama.cpp] Loading {gguf} (n_gpu_layers={n_gpu_layers}, n_ctx={n_ctx})")
 
-            n_ctx = _env_int("LLAMA_CTX", 4096)
-            print(f"[llama.cpp] Loading {gguf} with n_gpu_layers={n_gpu_layers}, n_ctx={n_ctx}")
+        # ------------------------------
+        # モデルロード
+        # ------------------------------
+        try:
             self._llm = Llama(
                 model_path=str(gguf),
                 n_ctx=n_ctx,
@@ -383,6 +412,7 @@ class LlamaCppModel(ModelInterface):
         except Exception as e:
             print(f"[llama.cpp] Failed to initialize: {e}")
             self._llm = None
+
 
     def set_system_prompt(self, prompt: str) -> None:
         self._history.set_system_prompt(prompt)
