@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Extractor Test</title>
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/styles.css') }}">
+</head>
+<body>
+  <h1>ポーズ抽出テスト</h1>
+  <div class="file-select">
+    <label for="pose-select">姿勢推定モデル</label>
+    <select id="pose-select">
+      <option value="openvino" {{ 'selected' if pose_model=='openvino' else '' }}>OpenVINO</option>
+      <option value="yolo" {{ 'selected' if pose_model=='yolo' else '' }}>YOLOv8</option>
+    </select>
+    <br />
+    <label for="device-select">デバイス</label>
+    <select id="device-select">
+      <option value="CPU" {{ 'selected' if device=='CPU' else '' }}>CPU</option>
+      <option value="GPU" {{ 'selected' if device=='GPU' else '' }}>GPU</option>
+      <option value="NPU" {{ 'selected' if device=='NPU' else '' }}>NPU</option>
+    </select>
+    <br />
+    <label for="extract-file">抽出テスト用の動画</label>
+    <select id="extract-file"></select>
+    <button id="extract-btn">/extractor を実行</button>
+  </div>
+
+  <pre id="extract-result" class="extract-result" style="white-space: pre-wrap; background:#111; color:#0f0; padding:12px; border-radius:6px; margin-top:16px;"></pre>
+
+  <script type="module" src="{{ request.url_for('static', path='js/extractor_test.js') }}"></script>
+</body>
+</html>
+
