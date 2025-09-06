@@ -1,6 +1,9 @@
 const box = document.getElementById('chat-messages');
 const input = document.getElementById('chat-input');
 const btn = document.getElementById('send-btn');
+const backendSel = document.getElementById('backend-select');
+const deviceSel = document.getElementById('device-select');
+const latencyEl = document.getElementById('latency');
 
 function append(role, text) {
   const p = document.createElement('p');
@@ -46,6 +49,7 @@ async function send() {
   append('user', text);
   input.value = '';
   try {
+    const t0 = performance.now();
     const res = await fetch('/chat_messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -53,6 +57,8 @@ async function send() {
     });
     const data = await res.json();
     appendTyping('assistant', data.reply || '');
+    const elapsed = typeof data.elapsed_ms === 'number' ? data.elapsed_ms : Math.round(performance.now() - t0);
+    if (latencyEl) latencyEl.textContent = `最終応答時間: ${elapsed} ms`;
   } catch (err) {
     append('assistant', 'エラーが発生しました');
   }
@@ -63,4 +69,44 @@ input.addEventListener('keydown', e => {
   if (e.key === 'Enter') send();
 });
 
-loadMessages();
+async function loadChatSettings() {
+  try {
+    const res = await fetch('/chat_settings');
+    const cfg = await res.json();
+    if (backendSel && cfg.backend) {
+      const val = (cfg.backend || '').toLowerCase();
+      if ([...backendSel.options].some(o => o.value === val)) backendSel.value = val;
+    }
+    if (deviceSel && cfg.openvino_device) {
+      const dev = cfg.openvino_device.toUpperCase();
+      if ([...deviceSel.options].some(o => o.value === dev)) deviceSel.value = dev;
+      else deviceSel.value = 'CPU';
+    }
+  } catch (e) {
+    console.warn('Failed to load chat settings', e);
+  }
+}
+
+async function applyChatSettings() {
+  const payload = {
+    backend: backendSel ? backendSel.value : undefined,
+    device: deviceSel ? deviceSel.value : undefined,
+  };
+  try {
+    await fetch('/chat_settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    // Clear local chat view after backend/device change to avoid confusion
+    box.innerHTML = '';
+    append('assistant', '設定を適用しました。新しいバックエンド/デバイスで応答します。');
+  } catch (e) {
+    console.warn('Failed to apply chat settings', e);
+  }
+}
+
+if (backendSel) backendSel.addEventListener('change', applyChatSettings);
+if (deviceSel) deviceSel.addEventListener('change', applyChatSettings);
+
+loadChatSettings().then(loadMessages);
