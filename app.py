@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import FastAPI, Request, UploadFile, File, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, StreamingResponse
 import base64
+import time
 import json
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -196,7 +197,14 @@ def index(request: Request):
 @app.get("/chat", response_class=HTMLResponse)
 def chat_page(request: Request):
     """Serve the standalone general-purpose chatbot page."""
-    return templates.TemplateResponse("chat.html", {"request": request})
+    return templates.TemplateResponse(
+        "chat.html",
+        {
+            "request": request,
+            "llm_backend": settings.LLM_BACKEND,
+            "openvino_device": os.environ.get("OPENVINO_DEVICE", "CPU"),
+        },
+    )
 
 @app.api_route("/chat_messages", methods=["GET", "POST"])
 async def chat_messages_handler(request: Request):
@@ -206,6 +214,7 @@ async def chat_messages_handler(request: Request):
         user_msg = data.get("message", "").strip()
         if not user_msg:
             return JSONResponse({"reply": ""})
+        start_t = time.perf_counter()
         if "text/event-stream" in request.headers.get("accept", ""):
             def stream():
                 for ch in chat.general_ask_stream(user_msg, max_messages=MAX_MESSAGES):
@@ -217,9 +226,57 @@ async def chat_messages_handler(request: Request):
 
             return StreamingResponse(event_stream(), media_type="text/event-stream")
         reply = "".join(chat.general_ask_stream(user_msg, max_messages=MAX_MESSAGES))
-        return JSONResponse({"reply": reply})
+        elapsed_ms = int((time.perf_counter() - start_t) * 1000)
+        return JSONResponse({"reply": reply, "elapsed_ms": elapsed_ms})
     else:
         return JSONResponse(chat.general_messages())
+
+
+@app.api_route("/chat_settings", methods=["GET", "POST"])
+async def chat_settings_handler(request: Request):
+    """Get or set general chat backend and device settings.
+
+    POST body example:
+        {"backend": "openvino|llama|auto", "device": "CPU|GPU.0|...", "llama_n_gpu_layers": 99}
+    """
+    if request.method == "GET":
+        return JSONResponse(
+            {
+                "backend": settings.LLM_BACKEND,
+                "openvino_device": os.environ.get("OPENVINO_DEVICE", "CPU"),
+                "llama_n_gpu_layers": os.environ.get("LLAMA_N_GPU_LAYERS"),
+            }
+        )
+    # POST
+    data = (await request.json()) or {}
+    backend = (data.get("backend") or "").strip()
+    device = (data.get("device") or "").strip()
+    llama_layers = data.get("llama_n_gpu_layers")
+
+    # Apply backend
+    if backend:
+        settings.LLM_BACKEND = backend
+        os.environ["LLM_BACKEND"] = backend
+    # Apply OpenVINO device
+    if device:
+        os.environ["OPENVINO_DEVICE"] = device
+    # Apply llama.cpp GPU offload layers
+    if llama_layers is not None and f"{llama_layers}".strip() != "":
+        os.environ["LLAMA_N_GPU_LAYERS"] = str(llama_layers)
+
+    # Force re-create general bot so changes take effect on next message
+    try:
+        chat.general_reset(backend=backend or None)
+    except Exception:
+        chat.general_clear()
+    return JSONResponse(
+        {
+            "status": "ok",
+            "backend": settings.LLM_BACKEND,
+            "openvino_device": os.environ.get("OPENVINO_DEVICE", "CPU"),
+            "llama_n_gpu_layers": os.environ.get("LLAMA_N_GPU_LAYERS"),
+        }
+    )
 
 @app.api_route("/messages", methods=["GET", "POST"])
 async def message_handler(request: Request):

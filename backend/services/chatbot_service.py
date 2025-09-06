@@ -59,6 +59,22 @@ class ChatbotService:
     def general_clear(self) -> None:
         self._general_messages.clear()
 
+    def general_reset(self, backend: Optional[str] = None) -> None:
+        """Reset the general chatbot instance and optionally set backend.
+
+        Clears the in-memory conversation and forces the next call to
+        instantiate a new model, picking up any env/config changes such as
+        ``LLM_BACKEND`` or device variables.
+        """
+        if backend:
+            try:
+                from backend.config import Settings as _S
+                _S.LLM_BACKEND = backend
+            except Exception:
+                pass
+        self._general_bot = None
+        self._general_messages.clear()
+
     # --------------------------- Swing chatbot ----------------------------
     def is_enabled(self) -> bool:
         return self.enabled
