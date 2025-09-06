@@ -18,6 +18,7 @@ from backend.services.system_service import SystemService
 from backend.utils.files import safe_filename
 from backend.simple_chatbot import preload_model
 from backend.simple_chatbot.config import ChatbotConfig
+from backend.inference import extract_keypoints, is_valid_openvino_ir
 
 app = FastAPI()
 
@@ -333,6 +334,138 @@ def list_videos():
     """Return available mp4 files in the data directory."""
     files = sorted(p.name for p in Path("data").glob("*.mp4"))  # Find mp4 files
     return JSONResponse(files)
+
+
+@app.post("/extractor")
+async def extract_endpoint(
+    request: Request,
+    video: UploadFile | None = File(None),
+):
+    """Extract pose keypoints from a video to sanity-check the extractor.
+
+    Accepts either a multipart file upload (field name 'video') or a JSON body
+    specifying an existing filename under the `data/` directory with
+    `{ "video_file": "current.mp4", "pose_model": "openvino|yolo", "device": "CPU|GPU|NPU" }`.
+    Returns a compact JSON summary of the extraction.
+    """
+    # Defaults from current analysis configuration
+    default_model_path = str(analysis.model_xml)
+    default_device = analysis.device
+
+    # Parse auxiliary params from request (works for both JSON and multipart)
+    pose_model = None
+    device = None
+    body_video_file = None
+
+    try:
+        if "application/json" in request.headers.get("content-type", "").lower():
+            data = (await request.json()) or {}
+            pose_model = (data.get("pose_model") or "").lower() or None
+            device = (data.get("device") or "").upper() or None
+            body_video_file = data.get("video_file")
+    except Exception:
+        pass
+
+    # Also allow query parameters as overrides (useful with multipart uploads)
+    qp = request.query_params
+    if not pose_model and (qp.get("pose_model") or "").lower() in {"openvino", "yolo"}:
+        pose_model = qp.get("pose_model").lower()
+    if not device and (qp.get("device") or "").upper() in {"CPU", "GPU", "NPU"}:
+        device = qp.get("device").upper()
+    if not body_video_file:
+        body_video_file = qp.get("video_file") or qp.get("file") or qp.get("video")
+
+    # Resolve model path
+    def _infer_pose_model_from_path(p: str) -> str:
+        pl = p.lower()
+        return "yolo" if (pl.endswith(".pt") or "yolov8" in pl or pl.endswith(".onnx")) else "openvino"
+
+    if pose_model in {"openvino", "yolo"}:
+        model_path = settings.YOLOV8_MODEL if pose_model == "yolo" else settings.MODEL_XML
+    else:
+        pose_model = _infer_pose_model_from_path(default_model_path)
+        model_path = default_model_path if pose_model == "openvino" else settings.YOLOV8_MODEL
+
+    # Fallback: if OpenVINO selected but IR invalid/missing, switch to YOLO
+    if pose_model == "openvino" and not is_valid_openvino_ir(str(model_path)):
+        logger.info("/extract: OpenVINO IR not found/invalid. Falling back to YOLOv8 pose model.")
+        pose_model = "yolo"
+        model_path = settings.YOLOV8_MODEL
+
+    # Resolve device
+    use_device = (device or default_device or "CPU").upper()
+
+    # Resolve video path: either uploaded or existing under data/
+    temp_path: Path | None = None
+    try:
+        if video is not None:
+            # Save uploaded content into data directory with a temp name
+            import uuid
+
+            data_dir = Path("data")
+            data_dir.mkdir(exist_ok=True)
+            safe_name = safe_filename(video.filename or "uploaded.mp4")
+            # prefix with _extract_ to mark as temporary
+            temp_path = data_dir / f"_extract_{uuid.uuid4().hex}_{safe_name}"
+            with temp_path.open("wb") as f:
+                f.write(await video.read())
+            video_path = temp_path
+        else:
+            if not body_video_file:
+                return JSONResponse({"error": "動画が提供されていません。'video' のアップロード、または 'video_file' を指定してください。"}, status_code=400)
+            # Prevent path traversal; restrict to data dir
+            candidate = Path("data") / Path(body_video_file)
+            try:
+                resolved = candidate.resolve(strict=True)
+                data_root = Path("data").resolve()
+                if data_root not in resolved.parents and resolved != data_root:
+                    raise RuntimeError("Invalid path")
+            except Exception:
+                return JSONResponse({"error": "指定された動画ファイルが見つかりません。"}, status_code=404)
+            video_path = resolved
+
+        # Run extraction (CPU/GPU/NPU selection is handled by backend inferencer)
+        kps = await asyncio.to_thread(extract_keypoints, video_path, str(model_path), str(use_device))
+
+        total = len(kps) if kps is not None else 0
+        non_empty = int(sum(1 for f in (kps or []) if f))
+        first_non_empty = next((f for f in (kps or []) if f), [])
+        sample = [list(map(float, pt)) for pt in (first_non_empty[:5] if first_non_empty else [])]
+
+        return JSONResponse(
+            {
+                "status": "ok",
+                "frames": total,
+                "non_empty_frames": non_empty,
+                "sample_keypoints": sample,
+                "pose_model": pose_model,
+                "device": use_device,
+            }
+        )
+    except Exception as exc:
+        logger.exception("Error in /extractor: %s", exc)
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=500)
+    finally:
+        # Clean up temp upload if created
+        if temp_path is not None:
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except Exception:
+                pass
+
+
+@app.get("/extractor_test", response_class=HTMLResponse)
+def extractor_test_page(request: Request):
+    """Standalone page to test the pose extractor with a chosen video."""
+    return templates.TemplateResponse(
+        "extractor_test.html",
+        {
+            "request": request,
+            "device": analysis.device,
+            "pose_model": ("yolo" if str(analysis.model_xml).lower().endswith(".pt") or "yolov8" in str(analysis.model_xml).lower() or str(analysis.model_xml).lower().endswith(".onnx") else "openvino"),
+        },
+    )
 
 
 @app.post("/upload_videos")

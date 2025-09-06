@@ -43,6 +43,10 @@ export async function analyze() {
   return postJson('/analyze');
 }
 
+export async function extractPose({ video_file, pose_model, device }) {
+  return postJson(`/extractor`, { video_file, pose_model, device });
+}
+
 export async function listVideos() {
   return getJson('/list_videos');
 }
