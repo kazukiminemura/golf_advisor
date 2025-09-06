@@ -83,6 +83,13 @@ async def warm_models_background():
     async def _warm_openpose():
         try:
             model_path_lower = str(analysis.model_xml).lower()
+            # Fallback: if configured for OpenVINO but model files aren't present/valid, switch to YOLOv8
+            from backend.inference.openpose import is_valid_openvino_ir
+            if model_path_lower.endswith('.xml') and not is_valid_openvino_ir(str(analysis.model_xml)):
+                logger.info("OpenVINO IR not found/invalid on first run. Falling back to YOLOv8 pose model.")
+                analysis.model_xml = settings.YOLOV8_MODEL
+                model_path_lower = str(analysis.model_xml).lower()
+
             if model_path_lower.endswith('.pt') or 'yolov8' in model_path_lower or model_path_lower.endswith('.onnx'):
                 from backend.inference import preload_yolov8_model
                 await asyncio.to_thread(preload_yolov8_model, str(analysis.model_xml), analysis.device)

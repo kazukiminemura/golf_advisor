@@ -2,15 +2,19 @@
 
 from .openpose import (
     PoseExtractor,
-    OpenVinoPoseExtractor,
+    OpenPoseExtractor,
+    YoloV8PoseExtractor,
     extract_keypoints,
     preload_openpose_model,
+    preload_yolov8_model,
 )
 
 __all__ = [
     "PoseExtractor",
-    "OpenVinoPoseExtractor",
+    "OpenPoseExtractor",
+    "YoloV8PoseExtractor",
     "extract_keypoints",
     "preload_openpose_model",
+    "preload_yolov8_model",
 ]
 

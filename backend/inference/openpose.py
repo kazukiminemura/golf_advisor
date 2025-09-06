@@ -41,7 +41,7 @@ class PoseExtractor(ABC):
 _MODEL_CACHE: Dict[Tuple[str, str], Tuple[object, object]] = {}
 
 
-class OpenVinoPoseExtractor(PoseExtractor):
+class OpenPoseExtractor(PoseExtractor):
     def __init__(self, model_xml: str, device: str = "CPU") -> None:
         self.model_xml = model_xml
         self.device = device
@@ -269,8 +269,8 @@ class YoloV8PoseExtractor(PoseExtractor):
 def preload_openpose_model(model_xml: str, device: str = "CPU") -> None:
     global _DEFAULT_EXTRACTOR
     # Reset only if model/device changed or backend differs
-    if not isinstance(_DEFAULT_EXTRACTOR, OpenVinoPoseExtractor) or _DEFAULT_EXTRACTOR.model_xml != model_xml or _DEFAULT_EXTRACTOR.device != device:
-        _DEFAULT_EXTRACTOR = OpenVinoPoseExtractor(model_xml, device)
+    if not isinstance(_DEFAULT_EXTRACTOR, OpenPoseExtractor) or _DEFAULT_EXTRACTOR.model_xml != model_xml or _DEFAULT_EXTRACTOR.device != device:
+        _DEFAULT_EXTRACTOR = OpenPoseExtractor(model_xml, device)
 
 
 def preload_yolov8_model(model_path: str, device: str | None = None, conf: float = 0.25, imgsz: int | None = None) -> None:
@@ -290,7 +290,7 @@ def extract_keypoints(video_path: Path, model_xml: str, device: str, target_size
         if not isinstance(_DEFAULT_EXTRACTOR, YoloV8PoseExtractor) or getattr(_DEFAULT_EXTRACTOR, "model_path", None) != model_xml or getattr(_DEFAULT_EXTRACTOR, "device", None) != _to_torch_device(device):
             preload_yolov8_model(model_xml, device)
     else:
-        if not isinstance(_DEFAULT_EXTRACTOR, OpenVinoPoseExtractor) or getattr(_DEFAULT_EXTRACTOR, "model_xml", None) != model_xml or getattr(_DEFAULT_EXTRACTOR, "device", None) != device:
+        if not isinstance(_DEFAULT_EXTRACTOR, OpenPoseExtractor) or getattr(_DEFAULT_EXTRACTOR, "model_xml", None) != model_xml or getattr(_DEFAULT_EXTRACTOR, "device", None) != device:
             preload_openpose_model(model_xml, device)
 
     assert _DEFAULT_EXTRACTOR is not None
@@ -352,7 +352,7 @@ def _ensure_openvino_model_files(model_xml: str) -> None:
 
 __all__ = [
     "PoseExtractor",
-    "OpenVinoPoseExtractor",
+    "OpenPoseExtractor",
     "YoloV8PoseExtractor",
     "extract_keypoints",
     "preload_openpose_model",
@@ -360,4 +360,37 @@ __all__ = [
     "normalize_coords",
     "scale_score",
 ]
+
+def is_valid_openvino_ir(xml_path: str) -> bool:
+    """Lightweight sanity check for OpenVINO IR files.
+
+    Returns True only when the XML exists and looks like XML, and the
+    corresponding .bin exists and does not look like an HTML error page.
+
+    This prevents noisy startup failures on first run when models are not
+    downloaded yet or placeholders are present.
+    """
+    try:
+        p = Path(xml_path)
+        if not p.exists() or p.suffix.lower() != ".xml":
+            return False
+        # XML should look like XML
+        with open(p, "rb") as f:
+            head = f.read(64).lstrip()
+        if not head.startswith(b"<"):
+            return False
+
+        bin_path = p.with_suffix(".bin")
+        if not bin_path.exists():
+            return False
+        # BIN should be binary, not an HTML page (common when a mirror returns HTML)
+        with open(bin_path, "rb") as f:
+            bhead = f.read(256)
+        # Heuristic: HTML pages begin with '<' or contain an HTML title
+        lower = bhead.lower()
+        if lower.startswith(b"<") or b"<html" in lower or b"storage.openvinotoolkit.org" in lower:
+            return False
+        return True
+    except Exception:
+        return False
 
