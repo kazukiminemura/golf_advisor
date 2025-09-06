@@ -51,8 +51,13 @@ logger = logging.getLogger("uvicorn.error")
 
 # Services and configuration
 settings = Settings()
+
+# Determine initial pose model from settings
+_initial_pose_model = settings.POSE_MODEL if getattr(settings, "POSE_MODEL", None) else "openvino"
+_initial_model_path = settings.MODEL_XML if _initial_pose_model != "yolo" else settings.YOLOV8_MODEL
+
 analysis = AnalysisService(
-    model_xml=settings.MODEL_XML,
+    model_xml=_initial_model_path,
     device=settings.DEVICE,
     data_dir=settings.DATA_DIR,
     static_dir=settings.STATIC_DIR,
@@ -74,17 +79,18 @@ async def warm_models_background():
     This runs asynchronously so the server becomes available immediately while
     models load in the background.
     """
-    # Warm pose model (OpenVINO or DWPose)
+    # Warm pose model (OpenVINO or YOLOv8)
     async def _warm_openpose():
         try:
-            if settings.POSE_BACKEND.lower() == "dwpose" and settings.DWPOSE_MODEL:
-                from backend.inference import preload_dwpose_model
-                await asyncio.to_thread(preload_dwpose_model, settings.DWPOSE_MODEL, analysis.device)
-                logger.info("DWPose model preloaded in background")
+            model_path_lower = str(analysis.model_xml).lower()
+            if model_path_lower.endswith('.pt') or 'yolov8' in model_path_lower or model_path_lower.endswith('.onnx'):
+                from backend.inference import preload_yolov8_model
+                await asyncio.to_thread(preload_yolov8_model, str(analysis.model_xml), analysis.device)
+                logger.info("YOLOv8-pose model preloaded in background")
             else:
                 from backend.inference import preload_openpose_model
-                await asyncio.to_thread(preload_openpose_model, analysis.model_xml, analysis.device)
-                logger.info("OpenPose model preloaded in background")
+                await asyncio.to_thread(preload_openpose_model, str(analysis.model_xml), analysis.device)
+                logger.info("OpenPose/OpenVINO model preloaded in background")
         except Exception as exc:
             logger.warning("Pose preload failed: %s", exc)
 
@@ -167,6 +173,7 @@ def index(request: Request):
             "has_results": has_results,
             "chatbot_enabled": is_chatbot_enabled(),
             "device": analysis.device,
+            "pose_model": ("yolo" if str(analysis.model_xml).lower().endswith(".pt") or "yolov8" in str(analysis.model_xml).lower() or str(analysis.model_xml).lower().endswith(".onnx") else "openvino"),
             "llm_backend": settings.LLM_BACKEND,
         },
     )
@@ -436,7 +443,17 @@ async def set_videos(request: Request):
     ref_file = data.get("reference_file")
     cur_file = data.get("current_file")
     device = (data.get("device") or "").upper()
+    pose_model = (data.get("pose_model") or "").lower()
     backend = (data.get("backend") or "").lower()
+
+    # Update pose model selection if provided
+    if pose_model in {"openvino", "yolo"}:
+        if pose_model == "yolo":
+            analysis.model_xml = settings.YOLOV8_MODEL
+            os.environ["POSE_MODEL"] = "yolo"
+        else:
+            analysis.model_xml = settings.MODEL_XML
+            os.environ["POSE_MODEL"] = "openvino"
 
     analysis.set_videos(ref_file, cur_file, device)
     chat.clear_swing()
@@ -446,9 +463,14 @@ async def set_videos(request: Request):
         chat.general_clear()
 
     logger.info(
-        f"Videos set to: ref={analysis.ref_video.name}, cur={analysis.cur_video.name}, device={analysis.device}, backend={settings.LLM_BACKEND}"
+        f"Videos set to: ref={analysis.ref_video.name}, cur={analysis.cur_video.name}, device={analysis.device}, pose_model={'yolo' if 'yolov8' in str(analysis.model_xml).lower() or str(analysis.model_xml).lower().endswith(('.pt', '.onnx')) else 'openvino'}, backend={settings.LLM_BACKEND}"
     )
-    return JSONResponse({"status": "ok", "device": analysis.device, "backend": settings.LLM_BACKEND})
+    return JSONResponse({
+        "status": "ok",
+        "device": analysis.device,
+        "backend": settings.LLM_BACKEND,
+        "pose_model": "yolo" if (str(analysis.model_xml).lower().endswith('.pt') or 'yolov8' in str(analysis.model_xml).lower() or str(analysis.model_xml).lower().endswith('.onnx')) else "openvino",
+    })
 
 
 @app.get("/chatbot_status")

@@ -28,6 +28,12 @@
         <option value="NPU">NPU</option>
       </select>
       <br />
+      <label for="pose-select">姿勢推定モデル</label>
+      <select id="pose-select">
+        <option value="openvino">OpenVINO (human-pose-estimation-0001)</option>
+        <option value="yolo">YOLOv8n-pose</option>
+      </select>
+      <br />
       <label for="backend-select">バックエンド</label>
       <select id="backend-select">
         <option value="auto">Auto</option>
@@ -98,6 +104,7 @@
       hasResults: {{ 'true' if has_results else 'false' }},
       chatbotEnabled: {{ 'true' if chatbot_enabled else 'false' }},
       device: '{{ device }}',
+      poseModel: '{{ pose_model }}',
       llmBackend: '{{ llm_backend }}',
       refKpUrl: '{{ request.url_for('static', path=ref_kp_name) }}',
       curKpUrl: '{{ request.url_for('static', path=cur_kp_name) }}',

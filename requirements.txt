@@ -6,6 +6,7 @@ opencv-python
 numpy
 transformers
 torch
+ultralytics>=8.0.0
 llama-cpp-python
 openvino-tokenizers[transformers]
 huggingface-hub
