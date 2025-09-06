@@ -512,6 +512,49 @@ def system_usage():
     return JSONResponse({"cpu": cpu, "gpu": gpu, "npu": npu, **mem})
 
 
+@app.get("/debug/cuda")
+def debug_cuda():
+    """Report CUDA/Torch visibility and device mapping inside the app process."""
+    import os as _os
+    import sys as _sys
+    info: dict[str, object] = {
+        "python_executable": _sys.executable,
+        "requested_GPU_maps_to": _yolo_map_device("GPU"),
+        "env": {
+            "CUDA_VISIBLE_DEVICES": _os.environ.get("CUDA_VISIBLE_DEVICES"),
+            "PYTORCH_CUDA_ALLOC_CONF": _os.environ.get("PYTORCH_CUDA_ALLOC_CONF"),
+        },
+    }
+    try:
+        import torch as _torch  # type: ignore
+
+        info.update(
+            {
+                "torch_version": getattr(_torch, "__version__", None),
+                "torch_cuda_version": getattr(getattr(_torch, "version", None), "cuda", None),
+                "cuda_available": bool(_torch.cuda.is_available()),
+                "cuda_device_count": int(_torch.cuda.device_count()),
+                "cuda_device_name_0": _torch.cuda.get_device_name(0) if _torch.cuda.is_available() else None,
+            }
+        )
+    except Exception as e:  # pragma: no cover
+        info["torch_import_error"] = str(e)
+
+    try:
+        import ultralytics as _ul  # type: ignore
+        import inspect as _inspect
+
+        info.update(
+            {
+                "ultralytics_path": _inspect.getfile(_ul),
+                "ultralytics_version": getattr(_ul, "__version__", None),
+            }
+        )
+    except Exception:
+        pass
+
+    return JSONResponse(info)
+
 @app.post("/analyze")
 async def analyze():
     """Run pose analysis and return the score."""
