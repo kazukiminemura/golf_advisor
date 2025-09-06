@@ -40,6 +40,20 @@ A minimal FastAPI application displays reference and test videos next to a chat 
    ```
    4. Open `http://localhost:8000/` in your browser.
 
+### DWPose Backend (optional)
+
+You can switch the pose extractor from the default OpenVINO human-pose model to a DWPose model (OpenVINO IR or ONNX) via environment variables:
+
+- `POSE_BACKEND=dwpose`
+- `DWPOSE_MODEL=/absolute/or/relative/path/to/dwpose.xml` (or `.onnx`)
+
+Notes:
+- DWPose output formats supported:
+  - Heatmaps `(K, H, W)` per frame (argmax postprocess)
+  - Keypoints `(K, 3)` per frame where columns are `[x, y, score]` (x/y can be normalized [0..1] or pixel coordinates)
+- Device selection uses the same `DEVICE` env var as OpenVINO (e.g., `CPU`, `GPU`, `NPU`).
+- Extracted keypoints are normalized to [0..1] and are fully compatible with the existing swing analysis and visualization.
+
 
 ## Simple Web Chatbot
 

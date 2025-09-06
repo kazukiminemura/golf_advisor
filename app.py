@@ -74,14 +74,19 @@ async def warm_models_background():
     This runs asynchronously so the server becomes available immediately while
     models load in the background.
     """
-    # Warm OpenPose (OpenVINO) model
+    # Warm pose model (OpenVINO or DWPose)
     async def _warm_openpose():
         try:
-            from backend.inference import preload_openpose_model
-            await asyncio.to_thread(preload_openpose_model, analysis.model_xml, analysis.device)
-            logger.info("OpenPose model preloaded in background")
+            if settings.POSE_BACKEND.lower() == "dwpose" and settings.DWPOSE_MODEL:
+                from backend.inference import preload_dwpose_model
+                await asyncio.to_thread(preload_dwpose_model, settings.DWPOSE_MODEL, analysis.device)
+                logger.info("DWPose model preloaded in background")
+            else:
+                from backend.inference import preload_openpose_model
+                await asyncio.to_thread(preload_openpose_model, analysis.model_xml, analysis.device)
+                logger.info("OpenPose model preloaded in background")
         except Exception as exc:
-            logger.warning("OpenPose preload failed: %s", exc)
+            logger.warning("Pose preload failed: %s", exc)
 
     # Warm LLM backend used by SimpleChatBot/EnhancedSwingChatBot
     async def _warm_llm():
