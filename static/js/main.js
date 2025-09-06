@@ -3,7 +3,6 @@ import { bindSynchronizedControls } from './video/playerControls.js';
 import { UsageController } from './usage/usageController.js';
 import { ChatController } from './chat/chatController.js';
 import { VideoSelectorController } from './ui/videoSelector.js';
-import { ExtractTester } from './ui/extractTester.js';
 
 // Read config injected by template
 const cfg = window.APP_CONFIG || {};
@@ -22,11 +21,7 @@ await videoSelector.loadList();
 videoSelector.setDefaults({ refName: cfg.refVideoName, curName: cfg.curVideoName });
 videoSelector.bindProcess();
 
-// Bind extractor test UI
-const extractor = new ExtractTester({
-  defaultDevice: cfg.device,
-});
-await extractor.init();
+// Extract test UI removed per request
 
 // Initialize videos and overlays if available
 if (cfg.hasResults) {

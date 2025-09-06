@@ -13,12 +13,10 @@
   <!-- 動画 -->
   <div class="video-container">
     <div class="file-select">
-      <label for="ref-upload">プロ</label>
-      <input id="ref-upload" type="file" accept="video/mp4" />
+      <label for="ref-file">プロ</label>
       <select id="ref-file"></select>
       <br />
-      <label for="cur-upload">対象</label>
-      <input id="cur-upload" type="file" accept="video/mp4" />
+      <label for="cur-file">対象</label>
       <select id="cur-file"></select>
       <br />
       <label for="device-select">デバイス</label>
@@ -43,13 +41,6 @@
       </select>
       <br />
       <button id="process-btn">更新</button>
-      <hr />
-      <div class="extract-test">
-        <label for="extract-file">抽出テスト用の動画</label>
-        <select id="extract-file"></select>
-        <button id="extract-btn">/extract を実行</button>
-        <div id="extract-result" class="extract-result"></div>
-      </div>
     </div>
     <div id="status"></div>
     <hr class="usage-separator" />

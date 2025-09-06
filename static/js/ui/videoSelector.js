@@ -35,8 +35,8 @@ export class VideoSelectorController {
     const btn = document.getElementById('process-btn');
     if (!btn) return;
     btn.onclick = async () => {
-      const refUp = document.getElementById('ref-upload').files[0];
-      const curUp = document.getElementById('cur-upload').files[0];
+      const refUp = document.getElementById('ref-upload')?.files?.[0] || null;
+      const curUp = document.getElementById('cur-upload')?.files?.[0] || null;
       const refSel = document.getElementById('ref-file').value;
       const curSel = document.getElementById('cur-file').value;
       const device = document.getElementById('device-select').value;
