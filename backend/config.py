@@ -22,7 +22,12 @@ class Settings:
     DATA_DIR = Path("data")
     STATIC_DIR = Path("static")
 
+    # Default OpenVINO IR model (OpenPose-like)
     MODEL_XML = "intel/human-pose-estimation-0001/FP16/human-pose-estimation-0001.xml"
+    # Default YOLOv8 pose checkpoint (Ultralytics will auto-download if needed)
+    YOLOV8_MODEL = env_str("YOLOV8_MODEL", "yolov8n-pose.pt")
+    # Frontend-selectable pose model: 'openvino' or 'yolo'
+    POSE_MODEL = env_str("POSE_MODEL", "openvino").lower() or "openvino"
     DEVICE = env_str("DEVICE", "CPU").upper() or "CPU"
 
     ENABLE_CHATBOT = env_flag("ENABLE_CHATBOT", "1")
