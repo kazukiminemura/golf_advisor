@@ -738,6 +738,25 @@ ChatBotFactory.register_backend("llama", _llama_backend_factory)
 _SHARED_MODEL: Optional[ModelInterface] = None
 
 
+def _backend_and_device(model: ModelInterface) -> tuple[str, str]:
+    """Return (backend, device) for logging purposes."""
+    try:
+        if isinstance(model, OpenVINOModel):
+            return ("openvino", getattr(model, "device", "unknown"))
+        if isinstance(model, LlamaCppModel):
+            # If CUDA is available we assume offload will be used
+            try:
+                has_nv = LlamaCppModel._has_nvidia_gpu()  # type: ignore[attr-defined]
+            except Exception:
+                has_nv = False
+            return ("llama.cpp", "CUDA(GPU)" if has_nv else "CPU")
+        if isinstance(model, EchoModel):
+            return ("echo", "CPU")
+        return (model.__class__.__name__, "unknown")
+    except Exception:
+        return ("unknown", "unknown")
+
+
 def preload_model(model_name: str = "openvion", gguf_filename: Optional[str] = None, backend: Optional[str] = None) -> None:
     """Load the LLM backend asynchronously-safe for reuse.
 
@@ -885,6 +904,8 @@ def main():
             sys.exit(1)
     
     model = ChatBotFactory.create_model(args.model, gguf_filename=args.gguf_filename, backend=args.backend)
+    be, dev = _backend_and_device(model)
+    print(f"[chatbot] バックエンド: {be}, デバイス: {dev}")
     chat = ChatInterface(model)
     chat.start()
 
