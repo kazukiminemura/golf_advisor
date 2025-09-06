@@ -8,7 +8,7 @@ import { VideoSelectorController } from './ui/videoSelector.js';
 const cfg = window.APP_CONFIG || {};
 
 // Initialize video selector and analysis flow
-const videoSelector = new VideoSelectorController({ currentDevice: cfg.device, hasChat: cfg.chatbotEnabled });
+const videoSelector = new VideoSelectorController({ currentDevice: cfg.device, hasChat: cfg.chatbotEnabled, backend: cfg.llmBackend });
 await videoSelector.loadList();
 videoSelector.setDefaults({ refName: cfg.refVideoName, curName: cfg.curVideoName });
 videoSelector.bindProcess();

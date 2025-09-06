@@ -167,6 +167,7 @@ def index(request: Request):
             "has_results": has_results,
             "chatbot_enabled": is_chatbot_enabled(),
             "device": analysis.device,
+            "llm_backend": settings.LLM_BACKEND,
         },
     )
 
@@ -435,14 +436,19 @@ async def set_videos(request: Request):
     ref_file = data.get("reference_file")
     cur_file = data.get("current_file")
     device = (data.get("device") or "").upper()
+    backend = (data.get("backend") or "").lower()
 
     analysis.set_videos(ref_file, cur_file, device)
     chat.clear_swing()
+    if backend:
+        settings.LLM_BACKEND = backend
+        os.environ["LLM_BACKEND"] = backend
+        chat.general_clear()
 
     logger.info(
-        f"Videos set to: ref={analysis.ref_video.name}, cur={analysis.cur_video.name}, device={analysis.device}"
+        f"Videos set to: ref={analysis.ref_video.name}, cur={analysis.cur_video.name}, device={analysis.device}, backend={settings.LLM_BACKEND}"
     )
-    return JSONResponse({"status": "ok", "device": analysis.device})
+    return JSONResponse({"status": "ok", "device": analysis.device, "backend": settings.LLM_BACKEND})
 
 
 @app.get("/chatbot_status")

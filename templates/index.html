@@ -28,6 +28,14 @@
         <option value="NPU">NPU</option>
       </select>
       <br />
+      <label for="backend-select">バックエンド</label>
+      <select id="backend-select">
+        <option value="auto">Auto</option>
+        <option value="openvino">OpenVINO</option>
+        <option value="llama">llama.cpp</option>
+        <option value="transformers">Transformers</option>
+      </select>
+      <br />
       <button id="process-btn">更新</button>
     </div>
     <div id="status"></div>
@@ -90,6 +98,7 @@
       hasResults: {{ 'true' if has_results else 'false' }},
       chatbotEnabled: {{ 'true' if chatbot_enabled else 'false' }},
       device: '{{ device }}',
+      llmBackend: '{{ llm_backend }}',
       refKpUrl: '{{ request.url_for('static', path=ref_kp_name) }}',
       curKpUrl: '{{ request.url_for('static', path=cur_kp_name) }}',
       refVideoName: '{{ ref_video_name }}',
