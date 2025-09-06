@@ -1,8 +1,9 @@
 import { listVideos, uploadVideos, setVideos, analyze } from '../services/api.js';
 
 export class VideoSelectorController {
-  constructor({ currentDevice, hasChat }) {
+  constructor({ currentDevice, hasChat, backend }) {
     this.currentDevice = currentDevice;
+    this.currentBackend = backend;
     this.hasChat = hasChat;
   }
 
@@ -23,9 +24,11 @@ export class VideoSelectorController {
     const refSel = document.getElementById('ref-file');
     const curSel = document.getElementById('cur-file');
     const devSel = document.getElementById('device-select');
+    const backendSel = document.getElementById('backend-select');
     if (refSel) refSel.value = refName || '';
     if (curSel) curSel.value = curName || '';
     if (devSel) devSel.value = this.currentDevice || 'CPU';
+    if (backendSel) backendSel.value = this.currentBackend || 'auto';
   }
 
   bindProcess() {
@@ -37,6 +40,7 @@ export class VideoSelectorController {
       const refSel = document.getElementById('ref-file').value;
       const curSel = document.getElementById('cur-file').value;
       const device = document.getElementById('device-select').value;
+      const backend = document.getElementById('backend-select').value;
 
       let refFile = refSel, curFile = curSel;
       if (refUp || curUp) {
@@ -45,7 +49,7 @@ export class VideoSelectorController {
         if (uploaded.current_file) curFile = uploaded.current_file;
       }
 
-      await setVideos({ reference_file: refFile, current_file: curFile, device });
+      await setVideos({ reference_file: refFile, current_file: curFile, device, backend });
 
       const status = document.getElementById('status');
       if (status) status.textContent = '動画解析中です。完了までお待ちください';

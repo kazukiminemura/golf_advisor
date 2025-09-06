@@ -35,8 +35,8 @@ export async function uploadVideos({ reference, current }) {
   return res.json();
 }
 
-export function setVideos({ reference_file, current_file, device }) {
-  return postJson('/set_videos', { reference_file, current_file, device });
+export function setVideos({ reference_file, current_file, device, backend }) {
+  return postJson('/set_videos', { reference_file, current_file, device, backend });
 }
 
 export async function analyze() {
