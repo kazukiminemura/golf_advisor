@@ -19,6 +19,12 @@ from backend.utils.files import safe_filename
 from backend.simple_chatbot import preload_model
 from backend.simple_chatbot.config import ChatbotConfig
 from backend.inference import extract_keypoints, is_valid_openvino_ir
+try:
+    # For reporting the effective device used by YOLO
+    from backend.inference.yolov8_extractor import _to_torch_device as _yolo_map_device  # type: ignore
+except Exception:
+    def _yolo_map_device(d):
+        return (d or "cpu").lower()
 
 app = FastAPI()
 
@@ -357,6 +363,8 @@ async def extract_endpoint(
     device = None
     body_video_file = None
 
+    import time
+    start_t = time.perf_counter()
     try:
         if "application/json" in request.headers.get("content-type", "").lower():
             data = (await request.json()) or {}
@@ -432,6 +440,8 @@ async def extract_endpoint(
         first_non_empty = next((f for f in (kps or []) if f), [])
         sample = [list(map(float, pt)) for pt in (first_non_empty[:5] if first_non_empty else [])]
 
+        elapsed_ms = int((time.perf_counter() - start_t) * 1000)
+        effective_device = _yolo_map_device(use_device) if pose_model == "yolo" else use_device
         return JSONResponse(
             {
                 "status": "ok",
@@ -439,12 +449,15 @@ async def extract_endpoint(
                 "non_empty_frames": non_empty,
                 "sample_keypoints": sample,
                 "pose_model": pose_model,
-                "device": use_device,
+                "requested_device": use_device,
+                "effective_device": effective_device,
+                "elapsed_ms": elapsed_ms,
             }
         )
     except Exception as exc:
+        elapsed_ms = int((time.perf_counter() - start_t) * 1000)
         logger.exception("Error in /extractor: %s", exc)
-        return JSONResponse({"status": "error", "message": str(exc)}, status_code=500)
+        return JSONResponse({"status": "error", "message": str(exc), "elapsed_ms": elapsed_ms}, status_code=500)
     finally:
         # Clean up temp upload if created
         if temp_path is not None:
