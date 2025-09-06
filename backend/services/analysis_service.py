@@ -57,6 +57,7 @@ class AnalysisService:
             self.cur_video = self.data_dir / cur_file
         if device and device.upper() in {"CPU", "GPU", "NPU"}:
             self.device = device.upper()
+            logger.info("Analysis device set to %s", self.device)
         # Clear previous results/state and artifacts when switching videos
         self._clear_state(remove_artifacts=True)
 
@@ -83,9 +84,9 @@ class AnalysisService:
                 raise FileNotFoundError(f"Current video not found: {self.cur_video}")
 
             # Extract keypoints
-            logger.info("Extracting keypoints from reference video...")
+            logger.info("Extracting keypoints from reference video on %s...", self.device)
             self.ref_keypoints = extract_keypoints(self.ref_video, self.model_xml, self.device)
-            logger.info("Extracting keypoints from current video...")
+            logger.info("Extracting keypoints from current video on %s...", self.device)
             self.cur_keypoints = extract_keypoints(self.cur_video, self.model_xml, self.device)
 
             # FPS for JSON
