@@ -78,6 +78,11 @@ class ChatbotService:
                 pass
         self._general_bot = None
         self._general_messages.clear()
+        try:
+            eff_backend = backend or getattr(Settings, "LLM_BACKEND", "")
+            logger.info("[chat] General chatbot reset. Pending reinit with backend=%s", eff_backend)
+        except Exception:
+            pass
 
     # --------------------------- Swing chatbot ----------------------------
     def is_enabled(self) -> bool:

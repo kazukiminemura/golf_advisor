@@ -269,6 +269,19 @@ async def chat_settings_handler(request: Request):
         chat.general_reset(backend=backend or None)
     except Exception:
         chat.general_clear()
+    # Log effective settings after applying changes
+    try:
+        eff_backend = settings.LLM_BACKEND
+        eff_device = os.environ.get("OPENVINO_DEVICE", "CPU")
+        eff_layers = os.environ.get("LLAMA_N_GPU_LAYERS")
+        logger.info(
+            "[chat] UI settings changed: backend=%s, device=%s, llama_n_gpu_layers=%s",
+            eff_backend,
+            eff_device,
+            eff_layers,
+        )
+    except Exception:
+        pass
     return JSONResponse(
         {
             "status": "ok",
