@@ -1,10 +1,12 @@
-"""Lightweight modular chatbot focused on OpenVINO GGUF.
+"""Lightweight modular chatbot with clear OpenVINO and llama.cpp backends.
 
-This refactor simplifies the original implementation by:
-- Defaulting to the OpenVINO backend (alias: "openvion")
-- Auto-downloading Qwen2.5 1.5B Instruct GGUF and converting tokenizer
-- Removing unused backends (Transformers, Llama.cpp) to reduce complexity
-- Keeping backward compatibility via SimpleChatBot.ask
+Highlights:
+- Supports both OpenVINO (via openvino-genai) and llama.cpp (via llama-cpp-python).
+- Uses the same GGUF model repo/id across backends (e.g.,
+  "bartowski/Qwen2.5-1.5B-Instruct-GGUF").
+- Auto-downloads GGUF and converts tokenizer for OpenVINO when needed.
+- Defaults to the OpenVINO backend (alias: "openvion").
+- Maintains backward compatibility via SimpleChatBot.ask/ask_stream.
 """
 
 
@@ -836,9 +838,9 @@ def parse_args():
     )
     parser.add_argument(
         "--backend",
-        choices=["auto", "openvion", "openvino"],
+        choices=["auto", "openvion", "openvino", "llama"],
         default=os.environ.get("LLM_BACKEND", "openvion"),
-        help="Backend: auto or openvion/openvino (default: openvion)."
+        help="Backend: auto, openvion/openvino, or llama (default: openvion)."
     )
     parser.add_argument(
         "--auto-install-tokenizers",

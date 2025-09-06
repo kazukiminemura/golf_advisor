@@ -69,7 +69,11 @@ class ChatbotService:
         if backend:
             try:
                 from backend.config import Settings as _S
+                # Update Settings for in-process readers
                 _S.LLM_BACKEND = backend
+                # Also update environment so new ChatbotConfig() picks it up
+                import os as _os
+                _os.environ["LLM_BACKEND"] = backend
             except Exception:
                 pass
         self._general_bot = None
