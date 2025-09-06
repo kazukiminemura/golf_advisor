@@ -7,6 +7,14 @@ import { VideoSelectorController } from './ui/videoSelector.js';
 // Read config injected by template
 const cfg = window.APP_CONFIG || {};
 
+// Fix UI labels per request
+try {
+  const devLabel = document.querySelector('label[for="device-select"]');
+  if (devLabel) devLabel.textContent = '動画分析デバイス';
+  const beLabel = document.querySelector('label[for="backend-select"]');
+  if (beLabel) beLabel.textContent = 'チャットボットバックエンド';
+} catch (_) { /* no-op */ }
+
 // Initialize video selector and analysis flow
 const videoSelector = new VideoSelectorController({ currentDevice: cfg.device, hasChat: cfg.chatbotEnabled, backend: cfg.llmBackend });
 await videoSelector.loadList();
