@@ -10,7 +10,7 @@ const cfg = window.APP_CONFIG || {};
 // Fix UI labels per request
 try {
   const devLabel = document.querySelector('label[for="device-select"]');
-  if (devLabel) devLabel.textContent = '動画分析デバイス';
+  if (devLabel) devLabel.textContent = '姿勢推定デバイス';
   const beLabel = document.querySelector('label[for="backend-select"]');
   if (beLabel) beLabel.textContent = 'チャットボットバックエンド';
 } catch (_) { /* no-op */ }

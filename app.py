@@ -260,9 +260,22 @@ async def chat_settings_handler(request: Request):
     # Apply OpenVINO device
     if device:
         os.environ["OPENVINO_DEVICE"] = device
-    # Apply llama.cpp GPU offload layers
+    # Apply llama.cpp GPU offload layers (explicit value wins)
     if llama_layers is not None and f"{llama_layers}".strip() != "":
         os.environ["LLAMA_N_GPU_LAYERS"] = str(llama_layers)
+    else:
+        # If backend is llama and user selected GPU, default to GPU offload
+        # so it actually runs on GPU even if layers not provided from UI.
+        try:
+            if (backend or settings.LLM_BACKEND).strip().lower() in {"llama", "llama.cpp"}:
+                dev_upper = (device or os.environ.get("OPENVINO_DEVICE", "")).upper()
+                if dev_upper.startswith("GPU"):
+                    # Reasonable default offload depth; users can override via UI/ENV
+                    os.environ["LLAMA_N_GPU_LAYERS"] = os.environ.get("LLAMA_N_GPU_LAYERS", "99")
+                elif dev_upper == "CPU":
+                    os.environ["LLAMA_N_GPU_LAYERS"] = "0"
+        except Exception:
+            pass
 
     # Force re-create general bot so changes take effect on next message
     try:
