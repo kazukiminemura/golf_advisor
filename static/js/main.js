@@ -23,12 +23,12 @@ async function loadChatSettingsIntoControls() {
   try {
     const res = await fetch('/chat_settings');
     const cfg = await res.json();
-    if (backendSel && cfg.backend) {
-      const val = (cfg.backend || '').toLowerCase();
+    if (backendSel && cfg.llm_backend) {
+      const val = (cfg.llm_backend || '').toLowerCase();
       if ([...backendSel.options].some(o => o.value === val)) backendSel.value = val;
     }
-    if (chatDeviceSel && cfg.openvino_device) {
-      const dev = (cfg.openvino_device || 'CPU').toUpperCase();
+    if (chatDeviceSel && cfg.llm_device) {
+      const dev = (cfg.llm_device || 'CPU').toUpperCase();
       if ([...chatDeviceSel.options].some(o => o.value === dev)) chatDeviceSel.value = dev;
       else chatDeviceSel.value = 'CPU';
     }
@@ -41,8 +41,8 @@ async function applyChatSettingsFromControls() {
   const backendSel = document.getElementById('backend-select');
   const chatDeviceSel = document.getElementById('chat-device-select');
   const payload = {
-    backend: backendSel ? backendSel.value : undefined,
-    device: chatDeviceSel ? chatDeviceSel.value : undefined,
+    llm_backend: backendSel ? backendSel.value : undefined,
+    llm_device: chatDeviceSel ? chatDeviceSel.value : undefined,
   };
   try {
     await fetch('/chat_settings', {

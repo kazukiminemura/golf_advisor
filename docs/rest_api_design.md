@@ -87,7 +87,7 @@
 汎用チャットボットのバックエンドとデバイスを取得・変更します。`POST` 例:
 
 ```json
-{"backend": "openvino", "device": "CPU"}
+{"llm_backend": "openvino", "llm_device": "CPU"}
 ```
 
 ## システム情報

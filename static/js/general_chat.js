@@ -73,12 +73,12 @@ async function loadChatSettings() {
   try {
     const res = await fetch('/chat_settings');
     const cfg = await res.json();
-    if (backendSel && cfg.backend) {
-      const val = (cfg.backend || '').toLowerCase();
+    if (backendSel && cfg.llm_backend) {
+      const val = (cfg.llm_backend || '').toLowerCase();
       if ([...backendSel.options].some(o => o.value === val)) backendSel.value = val;
     }
-    if (deviceSel && cfg.openvino_device) {
-      const dev = cfg.openvino_device.toUpperCase();
+    if (deviceSel && cfg.llm_device) {
+      const dev = cfg.llm_device.toUpperCase();
       if ([...deviceSel.options].some(o => o.value === dev)) deviceSel.value = dev;
       else deviceSel.value = 'CPU';
     }
@@ -89,8 +89,8 @@ async function loadChatSettings() {
 
 async function applyChatSettings() {
   const payload = {
-    backend: backendSel ? backendSel.value : undefined,
-    device: deviceSel ? deviceSel.value : undefined,
+    llm_backend: backendSel ? backendSel.value : undefined,
+    llm_device: deviceSel ? deviceSel.value : undefined,
   };
   try {
     await fetch('/chat_settings', {

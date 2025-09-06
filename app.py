@@ -202,7 +202,7 @@ def chat_page(request: Request):
         {
             "request": request,
             "llm_backend": settings.LLM_BACKEND,
-            "openvino_device": os.environ.get("OPENVINO_DEVICE", "CPU"),
+            "llm_device": os.environ.get("OPENVINO_DEVICE", "CPU"),
         },
     )
 
@@ -237,72 +237,74 @@ async def chat_settings_handler(request: Request):
     """Get or set general chat backend and device settings.
 
     POST body example:
-        {"backend": "openvino|llama|auto", "device": "CPU|GPU.0|...", "llama_n_gpu_layers": 99}
+        {"llm_backend": "openvino|llama|auto", "llm_device": "GPU.0"}
     """
     if request.method == "GET":
         return JSONResponse(
             {
-                "backend": settings.LLM_BACKEND,
-                "openvino_device": os.environ.get("OPENVINO_DEVICE", "CPU"),
-                "llama_n_gpu_layers": os.environ.get("LLAMA_N_GPU_LAYERS"),
+                "llm_backend": settings.LLM_BACKEND,
+                # LLM デバイス（OPENVINO_DEVICE を反映）
+                "llm_device": os.environ.get("OPENVINO_DEVICE", "GPU.0"),
+                # 現在の設定をそのまま返す（未設定なら -1）
+                "llama_n_gpu_layers": os.environ.get("LLAMA_N_GPU_LAYERS", "-1"),
             }
         )
+
     # POST
     data = (await request.json()) or {}
-    backend = (data.get("backend") or "").strip()
-    device = (data.get("device") or "").strip()
-    llama_layers = data.get("llama_n_gpu_layers")
+    llm_backend = (data.get("llm_backend") or "").strip()
+    llm_device = (data.get("llm_device") or "").upper().strip()
 
-    # Apply backend
-    if backend:
-        settings.LLM_BACKEND = backend
-        os.environ["LLM_BACKEND"] = backend
-    # Apply OpenVINO device
-    if device:
-        os.environ["OPENVINO_DEVICE"] = device
-    # Apply llama.cpp GPU offload layers (explicit value wins)
-    if llama_layers is not None and f"{llama_layers}".strip() != "":
-        os.environ["LLAMA_N_GPU_LAYERS"] = str(llama_layers)
+    # llm_backend はユーザー指定を反映
+    if llm_backend:
+        settings.LLM_BACKEND = llm_backend
+        os.environ["LLM_BACKEND"] = llm_backend
+
+    # デバイス/オフロード設定
+    # - OpenVINO: ユーザー選択デバイスへ反映（未指定なら既定を維持）
+    # - llama: デバイスがCPUなら n_gpu_layers=0、それ以外は -1
+    if llm_device:
+        os.environ["OPENVINO_DEVICE"] = llm_device
     else:
-        # If backend is llama and user selected GPU, default to GPU offload
-        # so it actually runs on GPU even if layers not provided from UI.
-        try:
-            if (backend or settings.LLM_BACKEND).strip().lower() in {"llama", "llama.cpp"}:
-                dev_upper = (device or os.environ.get("OPENVINO_DEVICE", "")).upper()
-                if dev_upper.startswith("GPU"):
-                    # Reasonable default offload depth; users can override via UI/ENV
-                    os.environ["LLAMA_N_GPU_LAYERS"] = os.environ.get("LLAMA_N_GPU_LAYERS", "99")
-                elif dev_upper == "CPU":
-                    os.environ["LLAMA_N_GPU_LAYERS"] = "0"
-        except Exception:
-            pass
+        os.environ.setdefault("OPENVINO_DEVICE", "GPU.0")
+    if (llm_backend or settings.LLM_BACKEND).lower() == "llama":
+        if llm_device.startswith("CPU"):
+            os.environ["LLAMA_N_GPU_LAYERS"] = "0"
+        else:
+            os.environ["LLAMA_N_GPU_LAYERS"] = "-1"
+    else:
+        # 非llamaバックエンド時は従来通りの既定値を維持
+        os.environ.setdefault("LLAMA_N_GPU_LAYERS", "-1")
 
     # Force re-create general bot so changes take effect on next message
     try:
-        chat.general_reset(backend=backend or None)
+        chat.general_reset(backend=llm_backend or None)
     except Exception:
         chat.general_clear()
-    # Log effective settings after applying changes
+
+    # ログ出力
     try:
         eff_backend = settings.LLM_BACKEND
-        eff_device = os.environ.get("OPENVINO_DEVICE", "CPU")
+        eff_llm_device = os.environ.get("OPENVINO_DEVICE", "GPU.0")
         eff_layers = os.environ.get("LLAMA_N_GPU_LAYERS")
         logger.info(
-            "[chat] UI settings changed: backend=%s, device=%s, llama_n_gpu_layers=%s",
+            "[chat] UI settings changed: llm_backend=%s, llm_device=%s, llama_n_gpu_layers=%s",
             eff_backend,
-            eff_device,
+            eff_llm_device,
             eff_layers,
         )
     except Exception:
         pass
+
     return JSONResponse(
         {
             "status": "ok",
-            "backend": settings.LLM_BACKEND,
-            "openvino_device": os.environ.get("OPENVINO_DEVICE", "CPU"),
-            "llama_n_gpu_layers": os.environ.get("LLAMA_N_GPU_LAYERS"),
+            "llm_backend": settings.LLM_BACKEND,
+            "llm_device": os.environ.get("OPENVINO_DEVICE", "GPU.0"),
+            "llama_n_gpu_layers": os.environ.get("LLAMA_N_GPU_LAYERS", "-1"),
         }
     )
+
 
 @app.api_route("/messages", methods=["GET", "POST"])
 async def message_handler(request: Request):
