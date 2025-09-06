@@ -1,162 +1,100 @@
-# REST API 設計
+# REST API
 
-## 動画関連
+すべてのエンドポイントは認証不要で、`data/` ディレクトリ配下のファイルを操作します。
 
-### GET /api/videos/{video_id}
-**認証**: 不要  
-**説明**: 指定IDの動画メタ情報を取得する。
+## 動画管理
 
-リクエスト例:
+### `GET /list_videos`
+利用可能な `.mp4` ファイルの一覧を JSON 配列で返します。
+
 ```
-curl -X GET https://example.com/api/videos/123
+[
+  "reference.mp4",
+  "current.mp4"
+]
 ```
+
+### `GET /videos/{filename}`
+データディレクトリから動画ファイルをストリーミングします。
+
+### `POST /upload_videos`
+1 本または 2 本の動画を multipart でアップロードします。
+
+フィールド:
+- `reference`: 参照スイング動画
+- `current`: 比較スイング動画
 
 レスポンス例:
+
 ```json
 {
-  "id": 123,
-  "filename": "swing1.mp4",
-  "uploaded_at": "2024-08-20T12:34:56Z"
+  "reference_file": "reference.mp4",
+  "current_file": "current.mp4"
 }
 ```
 
-**エラー**: `404 VIDEO_NOT_FOUND`
+### `POST /set_videos`
+既存の動画ファイルとオプション設定を選択します。リクエスト例:
 
-### POST /api/videos
-**認証**: 不要  
-**説明**: スイング動画をアップロードする。
-
-リクエスト例:
-```
-curl -X POST https://example.com/api/videos \
-  -F "file=@/path/to/swing.mp4" \
-  -F "type=reference"
-```
-
-レスポンス例:
 ```json
 {
-  "id": 124,
-  "filename": "swing.mp4"
+  "reference_file": "reference.mp4",
+  "current_file": "current.mp4",
+  "device": "CPU",
+  "pose_model": "openvino",
+  "backend": "openvino"
 }
 ```
 
-**エラー**: `400 INVALID_VIDEO_FORMAT`
+レスポンスには選択された device・backend・pose model が含まれます。
 
----
+## 解析
 
-## 解析関連
+### `POST /analyze`
+選択された動画の姿勢抽出とスコアリングを実行します。レスポンス例:
 
-### POST /api/analyses
-**認証**: 不要  
-**説明**: 参照動画と比較動画を解析してスコアを算出する。
-
-リクエスト例:
 ```json
 {
-  "reference_video_id": 123,
-  "compare_video_id": 124
-}
-```
-
-レスポンス例:
-```json
-{
-  "analysis_id": "a1b2c3",
   "score": {
     "total": 0.87,
     "by_part": {"head": 0.95, "hip": 0.78}
-  }
+  },
+  "analysis_complete": true
 }
 ```
 
-**エラー**: `422 ANALYSIS_FAILED`
+### `POST /extractor`
+デバッグ用エンドポイント。アップロードまたは既存ファイルからキーポイントを抽出し、フレーム数やサンプルキーポイントを返します。
 
-### GET /api/analyses/{analysis_id}
-**認証**: 不要  
-**説明**: 指定解析IDの結果を取得する。
+### `POST /init_chatbot`
+解析成果物が揃った後にスイング用チャットボットを初期化します。成功時は `{"status": "ok"}` を返します。
 
-リクエスト例:
-```
-curl -X GET https://example.com/api/analyses/a1b2c3
-```
+### `GET /chatbot_status`
+チャットボットが有効・初期化済み・利用可能かを報告します。
 
-レスポンス例:
+## チャット
+
+### `GET/POST /messages`
+スイング特化チャットボットのエンドポイント。
+- `POST` ボディ: `{"message": "text"}`
+- レスポンス: `{"reply": "assistant reply"}`
+- `GET` は会話履歴または初期化メッセージを返します。
+
+### `GET/POST /chat_messages`
+`/chat` で利用できる汎用チャットボット。
+
+### `GET/POST /chat_settings`
+汎用チャットボットのバックエンドとデバイスを取得・変更します。`POST` 例:
+
 ```json
-{
-  "analysis_id": "a1b2c3",
-  "status": "completed",
-  "score": {
-    "total": 0.87,
-    "by_part": {"head": 0.95, "hip": 0.78}
-  }
-}
+{"backend": "openvino", "device": "CPU"}
 ```
 
-**エラー**: `404 ANALYSIS_NOT_FOUND`
+## システム情報
 
----
+### `GET /system_usage`
+CPU・GPU・NPU・メモリ使用率を返します。
 
-## メッセージ関連
-
-### GET /api/messages?analysis_id={analysis_id}
-**認証**: 不要  
-**説明**: 指定解析に紐づくチャット履歴を取得する。
-
-リクエスト例:
-```
-curl -X GET "https://example.com/api/messages?analysis_id=a1b2c3"
-```
-
-レスポンス例:
-```json
-{
-  "analysis_id": "a1b2c3",
-  "messages": [
-    {"role": "user", "content": "どこを改善すべき？"},
-    {"role": "assistant", "content": "トップで右肘が伸びています"}
-  ]
-}
-```
-
-**エラー**: `404 ANALYSIS_NOT_FOUND`
-
-### POST /api/messages
-**認証**: 不要  
-**説明**: チャットボットへメッセージを送信する。
-
-リクエスト例:
-```json
-{
-  "analysis_id": "a1b2c3",
-  "content": "次の練習メニューは？"
-}
-```
-
-レスポンス例:
-```json
-{
-  "role": "assistant",
-  "content": "インパクト時の体重移動を意識しましょう"
-}
-```
-
-**エラー**: `400 INVALID_REQUEST`
-
----
-
-## システム使用率関連
-
-### GET /api/system-usage
-**認証**: 不要  
-**説明**: CPU/GPU/NPUおよびメモリ使用率を取得する。
-
-リクエスト例:
-```
-curl -X GET https://example.com/api/system-usage
-```
-
-レスポンス例:
 ```json
 {
   "cpu": 32.1,
@@ -166,17 +104,5 @@ curl -X GET https://example.com/api/system-usage
 }
 ```
 
-**エラー**: `500 INTERNAL_ERROR`
-
----
-
-## エラーレスポンス共通形式
-```json
-{
-  "error": {
-    "code": "ERROR_CODE",
-    "message": "人間が読める説明"
-  }
-}
-```
-
+### `GET /debug/cuda`
+Torch と CUDA の可視性を報告します。
