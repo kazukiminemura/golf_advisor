@@ -40,6 +40,15 @@
         <option value="transformers">Transformers</option>
       </select>
       <br />
+      <label for="chat-device-select">チャットボットデバイス（OpenVINO）</label>
+      <select id="chat-device-select">
+        <option value="CPU">CPU</option>
+        <option value="GPU">GPU</option>
+        <option value="GPU.0">GPU.0</option>
+        <option value="GPU.1">GPU.1</option>
+        <option value="NPU">NPU</option>
+      </select>
+      <br />
       <button id="process-btn">更新</button>
     </div>
     <div id="status"></div>
