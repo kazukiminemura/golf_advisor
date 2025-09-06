@@ -17,6 +17,7 @@ import sys
 import subprocess
 import shutil
 from pathlib import Path as _PathForDlls
+import math
 
 
 def _prepare_windows_openvino_dlls() -> None:
@@ -294,9 +295,117 @@ class EchoModel(ModelInterface):
 
 
 class LlamaCppModel(ModelInterface):
-    """Deprecated placeholder (removed)."""
-    def __init__(self, *_, **__):
-        raise RuntimeError("Llama.cpp backend has been removed in this refactor.")
+    """llama.cpp backend with optional NVIDIA GPU offload.
+
+    Uses `llama-cpp-python`. If the wheel is built with CUDA support and an
+    NVIDIA GPU is available, it offloads layers automatically.
+    """
+
+    def __init__(self, model_path: str, gguf_filename: Optional[str] = None, max_new_tokens: int | None = None):
+        self.model_path = model_path
+        self._gguf_filename = gguf_filename
+        self.max_new_tokens = max_new_tokens or _env_int("LLM_MAX_TOKENS", 256)
+        self._history = ChatHistory()
+        self._llm = None
+        self._load_model()
+
+    @staticmethod
+    def _has_nvidia_gpu() -> bool:
+        try:
+            out = subprocess.check_output(["nvidia-smi", "-L"], stderr=subprocess.DEVNULL)
+            return bool(out.strip())
+        except Exception:
+            return False
+
+    @staticmethod
+    def _is_repo_id(path_or_id: str) -> bool:
+        return "/" in path_or_id and not Path(path_or_id).drive
+
+    def _resolve_gguf(self) -> Optional[Path]:
+        raw = self.model_path
+        p = Path(raw)
+        if p.exists() and p.is_file() and p.suffix.lower() == ".gguf":
+            return p
+        if p.exists() and p.is_dir():
+            # Try common GGUF names inside directory
+            for cand in p.rglob("*.gguf"):
+                return cand
+            return None
+        if self._is_repo_id(raw):
+            # Resolve GGUF filename candidates
+            env_gguf = os.environ.get("GGUF_FILENAME")
+            if self._gguf_filename or env_gguf:
+                candidates = [self._gguf_filename or env_gguf]  # type: ignore[list-item]
+            else:
+                candidates = [
+                    "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
+                    "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+                ]
+            for filename in candidates:
+                out_dir = Path(os.environ.get("HF_LOCAL_DIR", "models"))
+                out_dir.mkdir(parents=True, exist_ok=True)
+                cli_path = _download_gguf_via_cli(raw, filename, out_dir)
+                if cli_path is not None:
+                    return cli_path
+        return None
+
+    def _load_model(self) -> None:
+        try:
+            gguf = self._resolve_gguf()
+            if gguf is None:
+                print("[llama.cpp] GGUF not found; falling back to echo mode")
+                self._llm = None
+                return
+            try:
+                from llama_cpp import Llama  # type: ignore
+            except Exception as e:
+                print(f"[llama.cpp] 'llama-cpp-python' not available: {e}")
+                self._llm = None
+                return
+
+            # Determine GPU offload layers
+            n_gpu_layers = _env_int("LLAMA_N_GPU_LAYERS", -1 if self._has_nvidia_gpu() else 0)
+            if n_gpu_layers < 0:
+                # Try to offload all layers when possible; if it fails, llama-cpp will adjust
+                n_gpu_layers = 99999
+
+            n_ctx = _env_int("LLAMA_CTX", 4096)
+            print(f"[llama.cpp] Loading {gguf} with n_gpu_layers={n_gpu_layers}, n_ctx={n_ctx}")
+            self._llm = Llama(
+                model_path=str(gguf),
+                n_ctx=n_ctx,
+                seed=0,
+                n_gpu_layers=n_gpu_layers,
+                verbose=False,
+            )
+        except Exception as e:
+            print(f"[llama.cpp] Failed to initialize: {e}")
+            self._llm = None
+
+    def set_system_prompt(self, prompt: str) -> None:
+        self._history.set_system_prompt(prompt)
+
+    def reset_history(self) -> None:
+        self._history.reset()
+
+    def _build_prompt(self, message: str) -> str:
+        return self._history.build_prompt(next_user=message)
+
+    def generate_response(self, message: str) -> str:
+        if self._llm is None:
+            return f"Echo: {message}"
+        prompt = self._build_prompt(message)
+        try:
+            # Prefer completion API for broad compatibility
+            out = self._llm.create_completion(prompt=prompt, temperature=0.7, max_tokens=self.max_new_tokens)
+            text = (out.get("choices") or [{}])[0].get("text", "").strip()
+        except Exception as e:
+            return f"[llama.cpp generation error: {e}]"
+
+        reply = text[len(prompt):].strip() if text.startswith(prompt) else text
+        self._history.add_user(message)
+        self._history.add_assistant(reply)
+        return reply
 
 
 class OpenVINOModel(ModelInterface):
@@ -582,7 +691,17 @@ class ChatBotFactory:
         # Backend selection with sensible default
         choice = (backend or os.environ.get("LLM_BACKEND", "openvion")).strip().lower()
         if choice in {"", "auto"}:
-            choice = "openvion"
+            # Prefer llama.cpp when NVIDIA GPU is available (offload)
+            try:
+                has_nv = False
+                try:
+                    _ = subprocess.check_output(["nvidia-smi", "-L"], stderr=subprocess.DEVNULL)
+                    has_nv = True
+                except Exception:
+                    has_nv = False
+                choice = "llama" if has_nv else "openvion"
+            except Exception:
+                choice = "openvion"
 
         factory = cls._registry.get(choice)
         if factory is None:
@@ -604,6 +723,13 @@ def _openvino_backend_factory(model_name: str, gguf_filename: Optional[str]) -> 
 
 
 ChatBotFactory.register_backend("openvion", _openvino_backend_factory)
+ChatBotFactory.register_backend("openvino", _openvino_backend_factory)
+
+
+def _llama_backend_factory(model_name: str, gguf_filename: Optional[str]) -> ModelInterface:
+    return LlamaCppModel(model_path=model_name, gguf_filename=gguf_filename)
+
+ChatBotFactory.register_backend("llama", _llama_backend_factory)
 
 
 # Shared model cache for quick reuse across instances
