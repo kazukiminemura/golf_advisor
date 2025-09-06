@@ -84,7 +84,7 @@ async def warm_models_background():
         try:
             model_path_lower = str(analysis.model_xml).lower()
             # Fallback: if configured for OpenVINO but model files aren't present/valid, switch to YOLOv8
-            from backend.inference.openvino_extractor import is_valid_openvino_ir
+            from backend.inference import is_valid_openvino_ir
             if model_path_lower.endswith('.xml') and not is_valid_openvino_ir(str(analysis.model_xml)):
                 logger.info("OpenVINO IR not found/invalid on first run. Falling back to YOLOv8 pose model.")
                 analysis.model_xml = settings.YOLOV8_MODEL
